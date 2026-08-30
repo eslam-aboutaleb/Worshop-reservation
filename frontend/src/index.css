@@ -1,0 +1,106 @@
+/**
+ * Global stylesheet for the workshop SPA.
+ *
+ * Layers (top to bottom):
+ *
+ * 1. **Fonts** - DM Sans for body text, Space Grotesk for display
+ *    headings. Both are loaded from Google Fonts; the fallback
+ *    chain in `font-family` keeps the UI usable while the network
+ *    request is in flight.
+ * 2. **Tailwind** - `@import "tailwindcss"` enables the utility
+ *    classes used throughout the components.
+ * 3. **Theme tokens** - the `@theme` block defines the brand palette
+ *    consumed by the utility classes (e.g. `bg-coral`, `text-ink`).
+ *    Adjust here, not in individual components.
+ * 4. **Base resets** - color/background, font smoothing, and a
+ *    sensible `min-width` for the body so the layout does not
+ *    collapse on narrow phones.
+ * 5. **Component helpers** - `.display-font`, `.paper-grid` (the
+ *    faint grid background on the main wrapper), `.fade-up` keyframe
+ *    animation with a `prefers-reduced-motion` override.
+ */
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  /* Brand surfaces */
+  --color-ink: #192d3a; /* deep navy, used for premium dark surfaces */
+  --color-paper: #f7f4ed; /* warm cream, primary background */
+  --color-sand: #ebe5d8; /* warm beige, decorative surface */
+  --color-line: #d8d1c4; /* warm gray, borders */
+
+  /* Accents */
+  --color-coral: #a8482f; /* dark coral, AA on paper + soft (5.26:1) */
+  --color-coral-dark: #8f3d2c; /* hover, AAA on paper (6.66:1) */
+  --color-coral-bright: #e66f51; /* legacy brand hue, only for large display */
+  --color-teal: #1f625b; /* dark teal, AA on teal-light (6.66:1) */
+  --color-teal-bright: #2d7775; /* legacy brand hue, large display only */
+  --color-teal-light: #dcefeb; /* soft teal background, info surfaces */
+
+  /* Semantic surfaces (paired light-on-dark) */
+  --color-soft: #fff0eb; /* coral-tinted cream, error/warning fill */
+  --color-soft-edge: #efb5a7; /* matching border for soft fills */
+  --color-danger: #8f3d2c; /* text on soft (AAA on soft: 6.59:1) */
+
+  --color-success: #1f625b; /* text on success-soft (AAA: 6.66:1) */
+  --color-success-soft: #effaf7; /* mint background, success toasts */
+  --color-success-edge: #9bd4c7; /* matching border */
+
+  /* Overlays */
+  --color-overlay: rgb(25 45 58 / 0.5); /* ink at 50%, modal backdrops */
+}
+
+:root {
+  color: #192d3a;
+  background: #f7f4ed;
+  font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-width: 320px;
+}
+button,
+input {
+  font: inherit;
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 3px solid var(--color-coral-bright);
+  outline-offset: 3px;
+}
+.display-font {
+  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+}
+.paper-grid {
+  background-image:
+    linear-gradient(rgba(25, 45, 58, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(25, 45, 58, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+.fade-up {
+  animation: fade-up 0.55s ease-out both;
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

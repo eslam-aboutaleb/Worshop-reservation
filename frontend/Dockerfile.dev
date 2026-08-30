@@ -1,0 +1,25 @@
+# Development image for the React/Vite frontend.
+#
+# Build context: ./frontend
+# Run via: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# The container runs ``vite`` (with HMR) on port 5173 and bind-mounts
+# the source tree in. Vite's HMR uses a websocket over the same
+# origin so no extra nginx config is needed. The docker-compose.dev
+# file publishes 5173 directly so the host browser can reach it.
+#
+# In the dev compose file we override the CORS allow-list and the
+# cookie's ``secure`` flag so the cookie still travels over HTTP.
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install deps in a cached layer; node_modules is bind-mounted in
+# docker-compose.dev.yml so this only runs once.
+COPY package.json package-lock.json* ./
+RUN npm install
+
+# The source is bind-mounted in docker-compose.dev.yml; no COPY here.
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]

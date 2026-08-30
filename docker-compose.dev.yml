@@ -1,0 +1,114 @@
+# Development override for docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What this file changes vs production:
+#
+# - Builds use ``Dockerfile.dev`` (cached dep layers, dev extras).
+# - The source tree is bind-mounted so file edits are reflected
+#   immediately; the backend runs under uvicorn --reload, the
+#   frontend runs vite with HMR.
+# - node_modules and .venv are mounted as anonymous volumes so the
+#   host directory does not fight with the container's environment
+#   (the .venv path is different inside Linux, and the frontend
+#   image is Linux-only).
+# - The frontend container exposes 5173 directly; the host browser
+#   hits Vite there, and Vite proxies /api to the backend service.
+# - CORS is widened to the host's Vite origin so the cookie still
+#   flies; ``cookie_secure`` is set to false in the backend env
+#   because we're on plain HTTP.
+# - The DB is the production image (so data persists) but the named
+#   volume is replaced with a local bind mount under ./.dev-data so
+#   you can nuke it without affecting the production stack.
+#
+# This file is meant to be merged with the base compose via
+# ``-f docker-compose.yml -f docker-compose.dev.yml``. The two
+# services that exist only here (none) are absent by design; we
+# override, never replace.
+
+services:
+  db:
+    # Reuse the production image but bind-mount the data directory so
+    # the dev stack has its own isolated database.
+    volumes:
+      - ./.dev-data/postgres:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    # Run as the host user so files written by the reload (logs,
+    # __pycache__, .pyc) are owned by the developer, not root.
+    user: "1000:1000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://workshop_user:workshop_pass@db:5432/workshop_reservations
+      AUTH_SECRET_KEY: local-development-secret-change-this-to-a-random-32-character-value
+      # The Vite dev server runs on the host; allow its origin so
+      # the cookie + CORS handshake succeed.
+      CORS_ORIGINS: '["http://localhost:5173", "http://127.0.0.1:5173"]'
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: "lax"
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8000"
+    # Mount the source tree live; uvicorn --reload watches it.
+    # node_modules / .venv are NOT mounted so the container's
+    # environment is authoritative for dependencies.
+    volumes:
+      - ./backend/src:/app/src:rw
+      - ./backend/migrations:/app/migrations:rw
+      - ./backend/alembic.ini:/app/alembic.ini:rw
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro
+    # Publish 8000 directly to the host so curl / browser can hit
+    # the dev backend without going through nginx.
+    ports:
+      - "8000:8000"
+    # Don't wait for the production healthcheck's 15s start_period;
+    # the dev container is ready as soon as uvicorn binds.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    # Override the production command with a reload-friendly one.
+    # We still want migrations + seed on first boot so the schema is
+    # current; uvicorn starts after.
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m src.seed &&
+             uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      # Tell Vite where to proxy /api and /health. The backend
+      # service is the in-network hostname; this is the same value
+      # the production build uses for its nginx proxy_pass.
+      VITE_API_TARGET: http://backend:8000
+    volumes:
+      # Mount the source so Vite's HMR sees every edit. The two
+      # .gitignored trees (node_modules, dist) are bind-mounted from
+      # anonymous volumes so they stay inside the container - the
+      # Linux container cannot use a host-built node_modules folder.
+      - ./frontend/src:/app/src:rw
+      - ./frontend/index.html:/app/index.html:rw
+      - ./frontend/vite.config.ts:/app/vite.config.ts:rw
+      - ./frontend/tsconfig.json:/app/tsconfig.json:rw
+      - ./frontend/tsconfig.app.json:/app/tsconfig.app.json:rw
+      - ./frontend/vite-env.d.ts:/app/vite-env.d.ts:rw
+      - frontend_node_modules:/app/node_modules
+    ports:
+      # Vite's dev server, not nginx. The browser hits this directly.
+      - "5173:5173"
+    # No depends_on: the host browser can load the SPA before the
+    # backend is up; API calls fail gracefully and the React app
+    # surfaces the error in the toast layer.
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  frontend_node_modules:

@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+.pytest_cache/
+htmlcov/
+.coverage
+.ruff_cache/
+
+# Environment
+.env
+.env.local
+.env.production
+.env.*
+!.env.example
+
+# Node
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+*.log
+
+# Editor backups and coverage reports
+*.bak
+backend/coverage.txt
+backend/coverage.xml
+
+# Local dev-data volume mounted by docker-compose.dev.yml.
+.dev-data/
+
+skills/
+rules/
+.agents/
+.codex/
+.kilo/
+.specify/
+specs/
+WORKING_NOTES.md
+sonar-project.properties
+frontend/e2e/

@@ -1,0 +1,45 @@
+# Development image for the FastAPI backend.
+#
+# Build context: ./backend
+# Run via: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# This image installs the full dev dependency set (pytest, mypy, ruff,
+# etc.) and is meant to be used with a bind mount that overlays the
+# source tree, so file changes are picked up by uvicorn's reload
+# watcher without a rebuild. The DB migrations still run on container
+# start so a fresh ``postgres_data`` volume is migrated to head before
+# the API serves traffic.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# System deps first so the layer is cached when only the source moves.
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+        build-essential \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install dependencies from pyproject.toml (includes the ``dev``
+# extras) so the test/lint tools work too. We copy only the project
+# metadata first; the source is mounted at runtime.
+COPY pyproject.toml ./
+RUN pip install --upgrade pip \
+    && pip install ".[dev]"
+
+# Drop privileges. The bind mount is owned by the host user, so we
+# keep this UID-aligned in docker-compose.dev.yml.
+RUN useradd --create-home --uid 1000 app
+USER app
+
+EXPOSE 8000
+
+# Defaults that the dev compose file overrides. ``--reload`` watches
+# the whole project tree; the bind mount in docker-compose.dev.yml
+# makes local edits visible inside the container.
+CMD ["sh", "-c", "alembic upgrade head && python -m src.seed && uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"]
