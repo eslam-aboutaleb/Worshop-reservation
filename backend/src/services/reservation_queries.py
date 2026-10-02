@@ -15,13 +15,22 @@ async def find_idempotent_reservation(
     session: AsyncSession,
     workshop_id: uuid.UUID,
     idempotency_key: str,
+    user_id: uuid.UUID,
 ) -> Reservation | None:
-    """Return the reservation associated with an idempotency key."""
+    """Return the reservation this caller previously created for a key.
+
+    The lookup is scoped to ``user_id``. The idempotency key is a
+    client-supplied secret rather than an identity, so keying only on
+    ``(key, workshop_id)`` would let any account that reused another
+    caller's key read back that caller's reservation, attendee name
+    and email included.
+    """
     statement = (
         select(Reservation)
         .join(IdempotencyKey, IdempotencyKey.reservation_id == Reservation.id)
         .where(IdempotencyKey.key == idempotency_key)
         .where(IdempotencyKey.workshop_id == workshop_id)
+        .where(IdempotencyKey.user_id == user_id)
     )
     return (await session.execute(statement)).scalar_one_or_none()
 

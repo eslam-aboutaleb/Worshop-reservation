@@ -1,10 +1,10 @@
 """Idempotency-key SQLAlchemy model.
 
-Stores the mapping ``(key, workshop_id) -> reservation_id`` so that a
-retried ``POST /api/workshops/{id}/reservations`` with the same
-``Idempotency-Key`` header returns the original reservation rather
-than creating a duplicate. This is the *first* of two layers of
-idempotency: the *second* is the partial unique index
+Stores the mapping ``(key, workshop_id, user_id) -> reservation_id``
+so that a retried ``POST /api/workshops/{id}/reservations`` with the
+same ``Idempotency-Key`` header returns the original reservation
+rather than creating a duplicate. This is the *first* of two layers
+of idempotency: the *second* is the partial unique index
 ``uq_active_reservation`` on the ``reservations`` table itself.
 
 Why a dedicated table?
@@ -20,10 +20,19 @@ that was made" and decouples the API contract from the data model.
 Key scope
 ---------
 
-The primary key is the composite ``(key, workshop_id)`` deliberately,
-not just ``key``. The same client-generated key may legitimately be
-used to reserve a seat in two different workshops; those are
-independent requests and should not collide.
+The primary key is the composite ``(key, workshop_id, user_id)``.
+
+``workshop_id`` is there because the same client-generated key may
+legitimately reserve a seat in two different workshops; those are
+independent requests and must not collide.
+
+``user_id`` is there because the key is a client-supplied opaque
+string, **not** a credential. Without the account in the key, one
+account could submit another account's key and receive that account's
+reservation back in the replay response - attendee name and email
+included. The replay lookup is scoped to the caller for the same
+reason. It also keeps two accounts that happen to generate the same
+key from colliding in the table.
 """
 
 import uuid
@@ -37,7 +46,7 @@ from src.models.base import Base
 
 
 class IdempotencyKey(Base):
-    """A client-supplied idempotency key scoped to a workshop.
+    """A client-supplied idempotency key scoped to a workshop and account.
 
     Attributes:
         key: Client-supplied idempotency key (opaque string, max
@@ -45,6 +54,10 @@ class IdempotencyKey(Base):
         workshop_id: Foreign key to ``workshops.id``. ``ON DELETE
             CASCADE`` so removing a workshop cleans up its
             idempotency records automatically.
+        user_id: Owning account. Part of the primary key so a key is
+            only ever replayable by the account that sent it.
+            ``ON DELETE CASCADE`` so removing an account cleans up
+            its idempotency records.
         reservation_id: Foreign key to the ``Reservation`` produced by
             the first successful request carrying this key. Cascade-
             deleted with the reservation, although in practice
@@ -60,6 +73,11 @@ class IdempotencyKey(Base):
     workshop_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("workshops.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
     )
     reservation_id: Mapped[uuid.UUID] = mapped_column(

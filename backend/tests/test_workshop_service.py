@@ -6,7 +6,7 @@ from a signed-in detail-view request.
 """
 
 import uuid
-from datetime import UTC
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,19 @@ from src.schemas.reservation import ReservationCreate
 from src.services import reservation_service, workshop_service
 
 _TEST_PASSWORD_HASH = hash_password("TestPassword123!")
+
+
+async def _make_user(session: AsyncSession, label: str) -> User:
+    """Insert an account and return the refreshed row."""
+    user = User(
+        full_name=label,
+        email=f"{label}_{uuid.uuid4().hex}@example.com",
+        password_hash=_TEST_PASSWORD_HASH,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+    return user
 
 
 @pytest.mark.asyncio
@@ -62,6 +75,7 @@ async def test_list_workshops_decrements_after_reservation(
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="A", attendee_email="a@example.com"),
         idempotency_key=str(uuid.uuid4()),
+        user=await _make_user(session, "decrement"),
     )
 
     after = await workshop_service.list_workshops(session)
@@ -82,6 +96,7 @@ async def test_list_workshops_clamps_available_to_zero_when_full(
                 attendee_name=f"U{i}", attendee_email=f"u{i}_{uuid.uuid4()}@example.com"
             ),
             idempotency_key=str(uuid.uuid4()),
+            user=await _make_user(session, f"filler{i}"),
         )
 
     workshops = await workshop_service.list_workshops(session)
@@ -145,6 +160,7 @@ async def test_get_workshop_detail_anonymous_sees_no_reservations(
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="A", attendee_email=f"a_{suffix}@example.com"),
         idempotency_key=str(uuid.uuid4()),
+        user=await _make_user(session, f"anonview{suffix[:8]}"),
     )
     detail = await workshop_service.get_workshop_detail(
         session, uuid.UUID(workshop_id), user_id=None
@@ -218,9 +234,8 @@ async def test_get_workshop_detail_picks_active_status_only(
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="A", attendee_email=f"a_{suffix}@example.com"),
         idempotency_key=str(uuid.uuid4()),
+        user=await _make_user(session, f"cancelled{suffix[:8]}"),
     )
-    from datetime import UTC, datetime
-
     reservation.status = RESERVATION_STATUS_CANCELLED
     reservation.cancelled_at = datetime.now(UTC)
     await session.commit()

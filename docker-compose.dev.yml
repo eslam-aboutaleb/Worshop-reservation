@@ -38,12 +38,24 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    # Tag dev images distinctly. Without this the dev build lands on
+    # the same ``worshop-reservation-backend:latest`` tag the production
+    # build uses, so building one overlay silently replaces the other's
+    # image and the next ``up`` runs the wrong Dockerfile (which fails
+    # confusingly, e.g. "No 'script_location' key found").
+    image: worshop-reservation-backend:dev
     # Run as the host user so files written by the reload (logs,
     # __pycache__, .pyc) are owned by the developer, not root.
     user: "1000:1000"
+    # NOTE: DATABASE_URL and AUTH_SECRET_KEY are deliberately NOT set
+    # here. They arrive through ``env_file: ./backend/.env`` (from the
+    # base compose file), which is also what production uses. Overriding
+    # them in the overlay would commit a static, publicly known JWT
+    # signing key to the repository - anyone reading this file could
+    # forge a token for any account, including the configured admin.
+    # The cookie flags below are genuinely dev-only because the dev
+    # stack runs on plain HTTP.
     environment:
-      DATABASE_URL: postgresql+asyncpg://workshop_user:workshop_pass@db:5432/workshop_reservations
-      AUTH_SECRET_KEY: local-development-secret-change-this-to-a-random-32-character-value
       # The Vite dev server runs on the host; allow its origin so
       # the cookie + CORS handshake succeed.
       CORS_ORIGINS: '["http://localhost:5173", "http://127.0.0.1:5173"]'
@@ -83,6 +95,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+    # See the note on the backend service: keep the dev image off the
+    # production ``:latest`` tag.
+    image: worshop-reservation-frontend:dev
     environment:
       # Tell Vite where to proxy /api and /health. The backend
       # service is the in-network hostname; this is the same value

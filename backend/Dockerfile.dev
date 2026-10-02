@@ -19,16 +19,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # System deps first so the layer is cached when only the source moves.
+# Only build-essential is needed: hatchling compiles the project in the
+# next step. curl was previously installed here but nothing in the image
+# or the dev compose file invokes it.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y \
         build-essential \
-        curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies from pyproject.toml (includes the ``dev``
-# extras) so the test/lint tools work too. We copy only the project
-# metadata first; the source is mounted at runtime.
+# extras) so the test/lint tools work too. The wheel build needs the
+# package directory that hatchling is configured to package, so ``src``
+# is copied in as well; the bind mount in docker-compose.dev.yml
+# overlays it at runtime.
 COPY pyproject.toml ./
+COPY src ./src
 RUN pip install --upgrade pip \
     && pip install ".[dev]"
 

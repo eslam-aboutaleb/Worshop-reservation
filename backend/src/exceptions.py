@@ -33,9 +33,9 @@ Adding a new domain error
    ``app.add_exception_handler(MyError, my_error_handler)``.
 """
 
+import structlog
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
-import structlog
 
 logger = structlog.get_logger(__name__)
 

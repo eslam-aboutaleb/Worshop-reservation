@@ -144,62 +144,33 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 
 from unittest.mock import MagicMock  # noqa: E402
 
-from src.auth import create_access_token  # noqa: E402
-from src.models.user import User  # noqa: E402
+
+async def api_signup(
+    client: AsyncClient, *, email: str | None = None, full_name: str = "Test Attendee"
+) -> tuple[str, str]:
+    """Register an account through the public API.
+
+    Returns ``(access_token, email)``. Creating a reservation requires
+    an authenticated account, so most write-path tests start here.
+
+    Note that the ``client`` fixture keeps cookies between calls, so
+    once ``api_signup`` has run every later request on that client
+    carries the new account's session cookie unless the test either
+    passes an explicit ``Authorization`` header or calls
+    ``client.cookies.clear()`` to force the anonymous path.
+    """
+    email = email or f"user_{uuid.uuid4().hex}@example.com"
+    response = await client.post(
+        "/api/auth/signup",
+        json={"full_name": full_name, "email": email, "password": "Password123!"},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()["access_token"], email
 
 
-@pytest_asyncio.fixture
-async def attendee() -> AsyncGenerator[User, None]:
-    new_id = uuid.uuid4()
-    async with _session_factory() as session:
-        instance = User(id=new_id, email=f"attendee_{new_id}@example.com", hashed_password="dummy")
-        session.add(instance)
-        await session.commit()
-        await session.refresh(instance)
-        try:
-            yield instance
-        finally:
-            await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": new_id})
-            await session.commit()
-
-
-@pytest.fixture
-def attendee_token(attendee: User) -> str:
-    return create_access_token(attendee.id)
-
-
-@pytest_asyncio.fixture
-async def attendee_client(
-    client: AsyncClient, attendee_token: str
-) -> AsyncGenerator[AsyncClient, None]:
-    client.headers["Authorization"] = f"Bearer {attendee_token}"
-    yield client
-
-
-@pytest_asyncio.fixture
-async def admin() -> AsyncGenerator[User, None]:
-    new_id = uuid.uuid4()
-    async with _session_factory() as session:
-        instance = User(id=new_id, email=os.environ["ADMIN_EMAIL"], hashed_password="dummy")
-        session.add(instance)
-        await session.commit()
-        await session.refresh(instance)
-        try:
-            yield instance
-        finally:
-            await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": new_id})
-            await session.commit()
-
-
-@pytest.fixture
-def admin_token(admin: User) -> str:
-    return create_access_token(admin.id)
-
-
-@pytest_asyncio.fixture
-async def admin_client(client: AsyncClient, admin_token: str) -> AsyncGenerator[AsyncClient, None]:
-    client.headers["Authorization"] = f"Bearer {admin_token}"
-    yield client
+def auth_headers(token: str, **extra: str) -> dict[str, str]:
+    """Return an ``Authorization`` bearer header plus any extras."""
+    return {"Authorization": f"Bearer {token}", **extra}
 
 
 @pytest.fixture

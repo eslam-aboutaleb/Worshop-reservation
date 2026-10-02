@@ -52,6 +52,7 @@ async def _make_user(email: str) -> User:
 async def test_concurrent_reservations_yield_exactly_one_success(workshop) -> None:
     """Capacity=1, 50 concurrent reserves → exactly one 201, 49 409s, 1 row."""
     results: list[tuple[int, object]] = []
+    accounts = [await _make_user(f"user{idx}_{uuid.uuid4().hex}@example.com") for idx in range(50)]
 
     async def attempt(idx: int) -> None:
         async with _session_factory() as session:
@@ -61,6 +62,7 @@ async def test_concurrent_reservations_yield_exactly_one_success(workshop) -> No
                     workshop_id=workshop.id,
                     payload=_payload(f"user{idx}@example.com"),
                     idempotency_key=str(uuid.uuid4()),
+                    user=accounts[idx],
                 )
                 results.append((201, response))
             except Exception as exc:  # noqa: BLE001: tests inspect the exception type
@@ -93,14 +95,23 @@ async def test_idempotent_replay_returns_same_reservation(workshop) -> None:
     """Same key, same workshop → same reservation returned twice."""
     key = str(uuid.uuid4())
     payload = _payload("replay@example.com")
+    user = await _make_user(f"replay_{uuid.uuid4().hex}@example.com")
 
     async with _session_factory() as session:
         first, replayed_first = await reservation_service.create_reservation(
-            session=session, workshop_id=workshop.id, payload=payload, idempotency_key=key
+            session=session,
+            workshop_id=workshop.id,
+            payload=payload,
+            idempotency_key=key,
+            user=user,
         )
     async with _session_factory() as session:
         second, replayed_second = await reservation_service.create_reservation(
-            session=session, workshop_id=workshop.id, payload=payload, idempotency_key=key
+            session=session,
+            workshop_id=workshop.id,
+            payload=payload,
+            idempotency_key=key,
+            user=user,
         )
     assert replayed_first is False
     assert replayed_second is True
@@ -125,6 +136,9 @@ async def test_concurrent_same_key_replays_when_first_request_fills_workshop(wor
     key = str(uuid.uuid4())
     barrier = asyncio.Barrier(2)
     results: list[tuple[str, object]] = []
+    # Both requests must come from the same account: a key only replays
+    # for the account that created it.
+    user = await _make_user(f"samekey_{uuid.uuid4().hex}@example.com")
 
     async def attempt(email: str) -> None:
         async with _session_factory() as session:
@@ -135,6 +149,7 @@ async def test_concurrent_same_key_replays_when_first_request_fills_workshop(wor
                     workshop_id=workshop.id,
                     payload=_payload(email),
                     idempotency_key=key,
+                    user=user,
                 )
                 results.append(("replayed" if replayed else "created", response))
             except Exception as exc:  # noqa: BLE001 - test asserts no conflict occurs
@@ -198,22 +213,62 @@ async def test_cancel_is_idempotent(workshop) -> None:
 
 
 @pytest.mark.asyncio
-async def test_email_normalization_treats_case_as_same(workshop) -> None:
-    """Different cases of the same email are rejected as duplicates."""
+async def test_reservation_mirrors_the_account_not_the_request_body(workshop) -> None:
+    """The stored attendee identity is the account's, never the body's.
+
+    The duplicate-active rule is keyed on the account email rather
+    than a client-supplied body value, so a caller cannot smuggle in a
+    different identity to bypass "one active seat per person".
+
+    Email normalization itself happens at the signup boundary
+    (``schemas.common.NormalizedEmail``), not here; this only asserts
+    that whatever the account holds is what gets stored.
+    """
+    from src.models.user import User as _User
+
+    async with _session_factory() as session:
+        account = _User(
+            full_name="Alice",
+            email=f"alice_{uuid.uuid4().hex}@example.com",
+            password_hash=_TEST_PASSWORD_HASH,
+        )
+        session.add(account)
+        await session.commit()
+        await session.refresh(account)
+
+    async with _session_factory() as session:
+        created, _ = await reservation_service.create_reservation(
+            session=session,
+            workshop_id=workshop.id,
+            payload=_payload("attacker@example.com"),
+            idempotency_key=str(uuid.uuid4()),
+            user=account,
+        )
+    assert created.attendee_email == account.email
+    assert created.attendee_name == account.full_name
+    assert created.attendee_email != "attacker@example.com"
+
+
+@pytest.mark.asyncio
+async def test_same_account_cannot_hold_two_active_seats(workshop) -> None:
+    """A second reservation by the same account is rejected as a duplicate."""
     from src.exceptions import AlreadyReservedError
 
+    user = await _make_user(f"dupe_{uuid.uuid4().hex}@example.com")
     async with _session_factory() as session:
         await reservation_service.create_reservation(
             session=session,
             workshop_id=workshop.id,
-            payload=_payload("Alice@Example.com"),
+            payload=_payload("first@example.com"),
             idempotency_key=str(uuid.uuid4()),
+            user=user,
         )
     async with _session_factory() as session:
         with pytest.raises(AlreadyReservedError):
             await reservation_service.create_reservation(
                 session=session,
                 workshop_id=workshop.id,
-                payload=_payload("alice@example.com"),
+                payload=_payload("second@example.com"),
                 idempotency_key=str(uuid.uuid4()),
+                user=user,
             )

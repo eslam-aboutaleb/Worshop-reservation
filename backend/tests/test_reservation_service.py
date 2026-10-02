@@ -9,12 +9,16 @@ short-circuit. SSE publish behavior is covered in
 """
 
 import uuid
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth import hash_password
 from src.exceptions import ReservationNotFoundError, WorkshopNotFoundError
+from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
 from src.models.user import User
 from src.schemas.reservation import ReservationCreate
 from src.services import reservation_service
@@ -40,12 +44,14 @@ async def test_create_reservation_unknown_workshop_raises(
     session: AsyncSession,
 ) -> None:
     """POSTing against a random UUID must raise WorkshopNotFoundError."""
+    user = await _make_user(session)
     with pytest.raises(WorkshopNotFoundError):
         await reservation_service.create_reservation(
             session=session,
             workshop_id=uuid.uuid4(),
             payload=ReservationCreate(attendee_name="X", attendee_email="x@example.com"),
             idempotency_key=str(uuid.uuid4()),
+            user=user,
         )
 
 
@@ -68,18 +74,47 @@ async def test_create_reservation_uses_user_identity_when_provided(
 
 
 @pytest.mark.asyncio
-async def test_create_reservation_uses_body_when_anonymous(
+async def test_create_reservation_ignores_body_identity_entirely(
     session: AsyncSession, workshop_id: str
 ) -> None:
-    """Without a user, the body fields are persisted as-is."""
+    """The account is authoritative for attendee name and email.
+
+    The body still carries ``attendee_name`` / ``attendee_email`` for
+    wire compatibility, but a signed-in caller must not be able to book
+    a seat under somebody else's name.
+    """
+    user = await _make_user(session)
     reservation, _ = await reservation_service.create_reservation(
         session=session,
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="Body Name", attendee_email="body@example.com"),
         idempotency_key=str(uuid.uuid4()),
+        user=user,
     )
-    assert reservation.attendee_name == "Body Name"
-    assert reservation.attendee_email == "body@example.com"
+    assert reservation.attendee_name == user.full_name
+    assert reservation.attendee_email == user.email
+
+
+@pytest.mark.asyncio
+async def test_create_reservation_always_sets_owner(
+    session: AsyncSession, workshop_id: str
+) -> None:
+    """Every reservation row is owned. This is what makes strict cancel sound."""
+    user = await _make_user(session)
+    reservation, _ = await reservation_service.create_reservation(
+        session=session,
+        workshop_id=uuid.UUID(workshop_id),
+        payload=ReservationCreate(attendee_name="X", attendee_email="x@example.com"),
+        idempotency_key=str(uuid.uuid4()),
+        user=user,
+    )
+    row = (
+        await session.execute(
+            text("SELECT user_id FROM reservations WHERE id = :rid"), {"rid": reservation.id}
+        )
+    ).scalar()
+    assert row == user.id
+    assert row is not None
 
 
 @pytest.mark.asyncio
@@ -120,19 +155,43 @@ async def test_cancel_allows_owner_to_cancel_their_own_reservation(
 
 
 @pytest.mark.asyncio
-async def test_cancel_allows_signed_in_user_to_cancel_anonymous_legacy(
+async def test_cancel_rejects_signed_in_user_for_unowned_legacy_row(
     session: AsyncSession, workshop_id: str
 ) -> None:
-    """A signed-in user can cancel an anonymous legacy reservation."""
-    legacy, _ = await reservation_service.create_reservation(
-        session=session,
+    """No account may cancel a reservation it does not own.
+
+    This inverts the historical rule, which let *any* signed-in
+    account cancel *any* ``user_id IS NULL`` row on the theory that
+    such rows were "anonymous legacy bookings". Combined with the fact
+    that every reservation id was published on the unauthenticated SSE
+    channel, that turned the public event stream into a ready-made list
+    of bookings any account could cancel. Create now always sets an
+    owner, so an unowned row can only be historical data, and it is
+    not cancellable by guessing.
+
+    The row is written straight to the table to simulate pre-fix data
+    rather than going through the (now owner-requiring) create path.
+    """
+    legacy_id = uuid.uuid4()
+    legacy = Reservation(
+        id=legacy_id,
         workshop_id=uuid.UUID(workshop_id),
-        payload=ReservationCreate(attendee_name="Anon", attendee_email="anon@example.com"),
-        idempotency_key=str(uuid.uuid4()),
+        user_id=None,
+        attendee_name="Legacy",
+        attendee_email=f"legacy_{uuid.uuid4().hex}@example.com",
+        status=RESERVATION_STATUS_ACTIVE,
     )
-    user = await _make_user(session)
-    cancelled = await reservation_service.cancel_reservation(session, legacy.id, user)
-    assert cancelled.status == "cancelled"
+    session.add(legacy)
+    await session.commit()
+
+    intruder = await _make_user(session)
+    with pytest.raises(ReservationNotFoundError):
+        await reservation_service.cancel_reservation(session, legacy_id, intruder)
+
+    # The row must be untouched, not merely hidden.
+    await session.refresh(legacy)
+    assert legacy.status == RESERVATION_STATUS_ACTIVE
+    assert legacy.cancelled_at is None
 
 
 @pytest.mark.asyncio
@@ -152,16 +211,59 @@ async def test_cancel_unknown_reservation_raises(
         await reservation_service.cancel_reservation(session, uuid.uuid4(), user)
 
 
-def test_reservation_broadcast_dict_omits_pii() -> None:
-    """The SSE event payload must not contain attendee_name or attendee_email.
+@pytest.mark.asyncio
+async def test_deleting_an_account_cannot_orphan_its_reservation(
+    session: AsyncSession, workshop_id: str
+) -> None:
+    """The FK must refuse to orphan a reservation by nulling its owner.
 
-    Every connected browser receives every reservation event on the
-    public stream; including the attendee's name or email there
-    would leak PII to anonymous users.
+    Ownership is enforced strictly at cancel time, so a ``user_id``
+    that silently becomes NULL makes the booking uncancellable by
+    anyone - including the person who made it. The column is therefore
+    ``ON DELETE RESTRICT``: an account holding reservations cannot be
+    deleted until they are cancelled.
     """
-    from datetime import UTC, datetime
-    from types import SimpleNamespace
+    from sqlalchemy.exc import IntegrityError
 
+    user = await _make_user(session)
+    user_id = user.id
+    created, _ = await reservation_service.create_reservation(
+        session=session,
+        workshop_id=uuid.UUID(workshop_id),
+        payload=ReservationCreate(attendee_name="Owner", attendee_email=user.email),
+        idempotency_key=str(uuid.uuid4()),
+        user=user,
+    )
+
+    # The FK is immediate, not deferred, so the DELETE itself raises.
+    # ``user_id`` is captured above because the rollback expires every
+    # ORM instance in the session, and touching one afterwards would
+    # attempt a lazy load from sync context.
+    with pytest.raises(IntegrityError):
+        await session.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+    await session.rollback()
+
+    # The row keeps its owner and is still the caller's to cancel.
+    # create_reservation returns a schema, so re-read the ORM row.
+    row = (
+        await session.execute(select(Reservation).where(Reservation.id == created.id))
+    ).scalar_one()
+    assert row.user_id == user_id
+    assert row.status == RESERVATION_STATUS_ACTIVE
+    owner = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    cancelled = await reservation_service.cancel_reservation(session, row.id, owner)
+    assert cancelled.status == "cancelled"
+
+
+def test_reservation_broadcast_dict_carries_no_identifier() -> None:
+    """The SSE payload must not expose a reservation id or any PII.
+
+    Every connected browser - including anonymous ones - receives every
+    reservation event on the public stream. A reservation id is a
+    cancellation capability, so publishing one there handed every
+    visitor a list of bookings it could act on. Only ``status``
+    survives.
+    """
     fake = SimpleNamespace(
         id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         status="active",
@@ -170,7 +272,8 @@ def test_reservation_broadcast_dict_omits_pii() -> None:
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     payload = reservation_service._reservation_to_dict(fake)  # noqa: SLF001
-    assert payload == {"id": str(fake.id), "status": "active"}
+    assert payload == {"status": "active"}
+    assert "id" not in payload
     assert "attendee_name" not in payload
     assert "attendee_email" not in payload
     assert "created_at" not in payload
@@ -185,27 +288,27 @@ def test_reservation_broadcast_dict_omits_pii() -> None:
 
 
 @pytest.mark.asyncio
-async def test_already_reserved_raises_for_same_email(
+async def test_already_reserved_raises_for_same_account(
     session: AsyncSession, workshop_id: str
 ) -> None:
-    """Booking the same email twice in a row raises AlreadyReservedError."""
+    """The same account booking twice in a row raises AlreadyReservedError."""
     from src.exceptions import AlreadyReservedError
 
-    suffix = uuid.uuid4().hex
+    user = await _make_user(session)
     await reservation_service.create_reservation(
         session=session,
         workshop_id=uuid.UUID(workshop_id),
-        payload=ReservationCreate(attendee_name="A", attendee_email=f"dup_{suffix}@example.com"),
+        payload=ReservationCreate(attendee_name="A", attendee_email=user.email),
         idempotency_key=str(uuid.uuid4()),
+        user=user,
     )
     with pytest.raises(AlreadyReservedError):
         await reservation_service.create_reservation(
             session=session,
             workshop_id=uuid.UUID(workshop_id),
-            payload=ReservationCreate(
-                attendee_name="A2", attendee_email=f"dup_{suffix}@example.com"
-            ),
+            payload=ReservationCreate(attendee_name="A2", attendee_email=user.email),
             idempotency_key=str(uuid.uuid4()),
+            user=user,
         )
     assert session.in_transaction() is False
 

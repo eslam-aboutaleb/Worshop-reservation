@@ -360,10 +360,7 @@ async def get_current_user(
     return user
 
 
-async def get_current_admin(
-    user: User = Depends(get_current_user),
-    response: Response = None,  # type: ignore[assignment]
-) -> User:
+async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     """Resolve the configured administrator or reject the request with 403."""
     if not is_admin(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")

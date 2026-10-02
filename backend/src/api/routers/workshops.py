@@ -98,7 +98,6 @@ async def stream_events() -> StreamingResponse:
         finally:
             await unsubscribe_global(queue)
 
-
     return StreamingResponse(event_source(), media_type="text/event-stream")
 
 

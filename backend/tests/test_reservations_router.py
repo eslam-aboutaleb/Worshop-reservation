@@ -5,25 +5,14 @@ Complements the broader API tests in ``test_api.py`` by focusing on
 of create + cancel.
 """
 
+import json
 import uuid
 
 import pytest
 from httpx import AsyncClient
 
-
-async def _signup_and_token(client: AsyncClient, email: str | None = None) -> tuple[str, str]:
-    """Create an account and return (token, email)."""
-    email = email or f"resv_{uuid.uuid4()}@example.com"
-    response = await client.post(
-        "/api/auth/signup",
-        json={"full_name": "Test", "email": email, "password": "Password123!"},
-    )
-    assert response.status_code == 201, response.text
-    return response.json()["access_token"], email
-
-
-def _auth(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+from tests.conftest import api_signup as _signup_and_token
+from tests.conftest import auth_headers as _auth
 
 
 @pytest.mark.asyncio
@@ -131,32 +120,106 @@ async def test_anonymous_cancel_is_rejected(client: AsyncClient, workshop_id: st
     cancel it; that vector is closed and the call now requires a
     bearer token.
     """
+    token, _ = await _signup_and_token(client)
     create = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
-        json={"attendee_name": "Anon", "attendee_email": f"a_{uuid.uuid4()}@example.com"},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
+        json={"attendee_name": "Anon", "attendee_email": "a@example.com"},
+        headers={**_auth(token), "Idempotency-Key": str(uuid.uuid4())},
     )
     assert create.status_code == 201
     reservation_id = create.json()["id"]
+    client.cookies.clear()
     cancel = await client.delete(f"/api/reservations/{reservation_id}")
     assert cancel.status_code == 401
 
 
 @pytest.mark.asyncio
-async def test_signed_in_user_cancels_anonymous_legacy_via_api(
+async def test_signed_in_user_cannot_cancel_unowned_legacy_via_api(
     client: AsyncClient, workshop_id: str
 ) -> None:
-    """A signed-in user can cancel an anonymous legacy reservation over HTTP."""
-    create = await client.post(
-        f"/api/workshops/{workshop_id}/reservations",
-        json={"attendee_name": "Anon", "attendee_email": f"a_{uuid.uuid4()}@example.com"},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
-    )
-    assert create.status_code == 201
-    reservation_id = create.json()["id"]
+    """A signed-in account must not be able to cancel an unowned row.
+
+    This is the reported bug at the HTTP boundary. Create used to be
+    open to anonymous callers, so real rows existed with
+    ``user_id = NULL``; the cancel path then treated "unowned" as
+    "cancellable by any signed-in account", and every reservation id
+    was published on the unauthenticated SSE stream. Any visitor could
+    therefore cancel other people's seats.
+
+    The row is written straight to the database to represent that
+    pre-fix data; the create endpoint no longer produces unowned rows.
+    """
+    from sqlalchemy import text
+
+    from tests.conftest import _session_factory
+
+    legacy_id = uuid.uuid4()
+    async with _session_factory() as session:
+        await session.execute(
+            text(
+                "INSERT INTO reservations "
+                "(id, workshop_id, user_id, attendee_name, attendee_email, status) "
+                "VALUES (:id, :wid, NULL, :name, :email, 'active')"
+            ),
+            {
+                "id": legacy_id,
+                "wid": uuid.UUID(workshop_id),
+                "name": "Legacy",
+                "email": f"legacy_{uuid.uuid4().hex}@example.com",
+            },
+        )
+        await session.commit()
+
     token, _ = await _signup_and_token(client)
-    cancel = await client.delete(f"/api/reservations/{reservation_id}", headers=_auth(token))
-    assert cancel.status_code == 200
+    cancel = await client.delete(f"/api/reservations/{legacy_id}", headers=_auth(token))
+    assert cancel.status_code == 404
+    assert cancel.json()["error"]["code"] == "reservation_not_found"
+
+    # Confirm the seat was actually released back to the workshop.
+    async with _session_factory() as session:
+        status_value = (
+            await session.execute(
+                text("SELECT status FROM reservations WHERE id = :id"), {"id": legacy_id}
+            )
+        ).scalar()
+    assert status_value == "active"
+
+
+@pytest.mark.asyncio
+async def test_idempotency_replay_does_not_disclose_another_accounts_reservation(
+    client: AsyncClient, workshop_id: str
+) -> None:
+    """Replaying another account's key must not return that account's booking.
+
+    The replay response carries attendee name and email, so an
+    unscoped key lookup was a PII disclosure to anyone who could
+    obtain another caller's key.
+    """
+    victim_token, victim_email = await _signup_and_token(client, full_name="Victim Alice")
+    key = str(uuid.uuid4())
+    victim_create = await client.post(
+        f"/api/workshops/{workshop_id}/reservations",
+        json={"attendee_name": "Victim Alice", "attendee_email": victim_email},
+        headers={**_auth(victim_token), "Idempotency-Key": key},
+    )
+    assert victim_create.status_code == 201
+
+    attacker_token, attacker_email = await _signup_and_token(client, full_name="Attacker Bob")
+    replay = await client.post(
+        f"/api/workshops/{workshop_id}/reservations",
+        json={"attendee_name": "Attacker Bob", "attendee_email": attacker_email},
+        headers={**_auth(attacker_token), "Idempotency-Key": key},
+    )
+    # The attacker already holds a seat? No - this is a different
+    # account, so the workshop-level duplicate check does not apply and
+    # the key does not resolve for them. A fresh reservation is created
+    # under their own identity instead.
+    assert replay.status_code == 201
+    body = replay.json()
+    assert body["id"] != victim_create.json()["id"]
+    assert body["attendee_email"] == attacker_email
+    assert body["attendee_name"] == "Attacker Bob"
+    assert victim_email not in json.dumps(body)
 
 
 @pytest.mark.asyncio
@@ -177,10 +240,11 @@ async def test_create_with_signed_in_token_uses_account_email(
 @pytest.mark.asyncio
 async def test_empty_idempotency_key_is_rejected(client: AsyncClient, workshop_id: str) -> None:
     """An empty Idempotency-Key header is rejected with 422."""
+    token, _ = await _signup_and_token(client)
     response = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
         json={"attendee_name": "X", "attendee_email": "x@example.com"},
-        headers={"Idempotency-Key": ""},
+        headers=_auth(token, **{"Idempotency-Key": ""}),
     )
     assert response.status_code == 422
 
@@ -188,10 +252,11 @@ async def test_empty_idempotency_key_is_rejected(client: AsyncClient, workshop_i
 @pytest.mark.asyncio
 async def test_oversized_idempotency_key_is_rejected(client: AsyncClient, workshop_id: str) -> None:
     """An Idempotency-Key over 255 characters is rejected with 422."""
+    token, _ = await _signup_and_token(client)
     response = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
         json={"attendee_name": "X", "attendee_email": "x@example.com"},
-        headers={"Idempotency-Key": "k" * 256},
+        headers=_auth(token, **{"Idempotency-Key": "k" * 256}),
     )
     assert response.status_code == 422
 
@@ -201,10 +266,11 @@ async def test_max_length_idempotency_key_is_accepted(
     client: AsyncClient, workshop_id: str
 ) -> None:
     """An Idempotency-Key of exactly 255 characters is accepted."""
+    token, _ = await _signup_and_token(client)
     response = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
         json={"attendee_name": "X", "attendee_email": f"x_{uuid.uuid4()}@example.com"},
-        headers={"Idempotency-Key": "k" * 255},
+        headers=_auth(token, **{"Idempotency-Key": "k" * 255}),
     )
     assert response.status_code == 201
 
@@ -212,10 +278,11 @@ async def test_max_length_idempotency_key_is_accepted(
 @pytest.mark.asyncio
 async def test_invalid_workshop_id_in_path_is_rejected(client: AsyncClient) -> None:
     """A non-UUID workshop id is rejected with 422."""
+    token, _ = await _signup_and_token(client)
     response = await client.post(
         "/api/workshops/not-a-uuid/reservations",
         json={"attendee_name": "X", "attendee_email": "x@example.com"},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
+        headers=_auth(token, **{"Idempotency-Key": str(uuid.uuid4())}),
     )
     assert response.status_code == 422
 

@@ -13,9 +13,15 @@ where the central invariants of the system are enforced:
   partial index is a backstop: the key check is the first line.
 * **Cancellation is idempotent.** A second ``DELETE`` returns 200
   with the existing cancelled row instead of 409.
+* **Ownership is strict.** Every reservation has a non-null
+  ``user_id`` (create requires authentication) and a cancel is
+  refused unless that ``user_id`` matches the caller. There is no
+  "unowned row is cancelable by anyone" path.
 
 Every successful mutation publishes an event on the SSE channel via
-``realtime.publish`` so connected browsers see live updates.
+``realtime.publish`` so connected browsers see live updates. Those
+events carry counts only: the channel is unauthenticated, so no
+reservation identifier is ever broadcast on it.
 """
 
 import uuid
@@ -54,26 +60,27 @@ logger = structlog.get_logger(__name__)
 
 
 def _reservation_to_dict(reservation: Reservation) -> dict:
-    """Convert a ``Reservation`` row to the JSON payload broadcast over SSE.
+    """Build the per-reservation portion of the SSE broadcast payload.
 
-    The broadcast channel is public: every connected browser sees
-    every event, so the attendee's name and email (PII) are
-    deliberately omitted. The detail endpoint embeds the same data
-    scoped to the signed-in caller.
+    The broadcast channel is **public**: ``GET /api/workshops/events``
+    requires no credentials, so every anonymous visitor sees every
+    event. Only the reservation's ``status`` is emitted.
+
+    The reservation ``id`` is deliberately excluded. An id is a
+    capability: it is the only value a caller needs to act on a
+    reservation row, and publishing it on an unauthenticated channel
+    handed every logged-in account a ready-made list of ids to cancel.
+    Clients that legitimately hold a reservation obtain its id from
+    ``GET /api/reservations/me`` or the authenticated workshop detail,
+    both of which are scoped to the caller.
 
     Args:
-        reservation: The reservation to serialize.
+        reservation: The reservation being reported.
 
     Returns:
         A dict with primitive types so it survives ``json.dumps``.
-        The id is the only field that could be considered user
-        data and it is already required by clients that want to
-        cross-reference with the detail view.
     """
-    return {
-        "id": str(reservation.id),
-        "status": reservation.status,
-    }
+    return {"status": reservation.status}
 
 
 async def create_reservation(
@@ -81,7 +88,7 @@ async def create_reservation(
     workshop_id: uuid.UUID,
     payload: ReservationCreate,
     idempotency_key: str,
-    user: User | None = None,
+    user: User,
 ) -> tuple[ReservationResponse, bool]:
     """Create a reservation under a row-locked workshop.
 
@@ -108,12 +115,16 @@ async def create_reservation(
     Args:
         session: Active async database session.
         workshop_id: Target workshop.
-        payload: Validated reservation request body.
+        payload: Validated reservation request body. Its
+            ``attendee_name`` / ``attendee_email`` are accepted for
+            wire compatibility but are **ignored**: the authenticated
+            account is the sole source of attendee identity, so a
+            caller cannot book a seat under somebody else's name.
         idempotency_key: Client-supplied idempotency token.
-        user: Optional signed-in account. When provided, the
-            reservation is linked to the account (``user_id``) and
-            the duplicate-active check uses ``user.email`` instead of
-            the request body.
+        user: The signed-in account that will own the reservation.
+            Required. Every reservation therefore has a non-null
+            ``user_id``, which is what makes the strict ownership
+            check in :func:`cancel_reservation` sound.
 
     Returns:
         Tuple of ``(reservation response, replayed flag)``. ``replayed``
@@ -126,52 +137,62 @@ async def create_reservation(
         AlreadyReservedError: If the attendee already has an active
             booking for this workshop.
     """
-    replay = await _replay_idempotent(session, workshop_id, idempotency_key)
+    # Fast, unlocked idempotency replay check to short-circuit repeated requests
+    replay = await _replay_idempotent(session, workshop_id, idempotency_key, user.id)
     if replay is not None:
         return replay, True
 
     try:
+        # Pessimistic row lock (SELECT ... FOR UPDATE) on the workshop so
+        # capacity checks and inserts for this workshop are serialized.
         workshop = await _lock_workshop(session, workshop_id)
 
-        replay = await _replay_idempotent(session, workshop_id, idempotency_key)
+        # Re-check the key under the lock: a racing request may have
+        # committed while we were waiting to acquire it.
+        replay = await _replay_idempotent(session, workshop_id, idempotency_key, user.id)
         if replay is not None:
             await session.rollback()
             return replay, True
 
-        attendee_email = user.email if user else payload.attendee_email
+        # Ensure the attendee doesn't already have an active booking for this workshop
+        attendee_email = user.email
         await _reject_duplicate_attendee(session, workshop_id, attendee_email)
 
+        # Verify remaining capacity before admitting the new reservation
         active_count = await count_active_reservations(session, workshop_id)
         if active_count >= workshop.max_capacity:
             raise WorkshopFullError(str(workshop_id))
 
-        reservation = _new_reservation(workshop_id, payload, user, attendee_email)
+        # Create and stage the new reservation and its idempotency record
+        reservation = _new_reservation(workshop_id, user, attendee_email)
         await _insert_reservation(session, reservation, workshop_id)
-        await _persist_idempotency_key(session, idempotency_key, workshop_id, reservation.id)
+        await _persist_idempotency_key(
+            session, idempotency_key, workshop_id, user.id, reservation.id
+        )
 
         try:
+            # Commit the transaction, persisting changes and releasing the workshop row lock
             await session.commit()
         except IntegrityError:
-            # Two requests raced past the replay check with the same
-            # idempotency key. The other one committed first; re-read
-            # and return the winner's reservation.
+            # Handle race condition where a duplicate idempotency key committed concurrently
             await session.rollback()
-            replay = await _replay_idempotent(session, workshop_id, idempotency_key)
+            replay = await _replay_idempotent(session, workshop_id, idempotency_key, user.id)
             if replay is not None:
                 return replay, True
             raise
     except (AlreadyReservedError, WorkshopFullError, WorkshopNotFoundError):
-        # Release the workshop row lock before surfacing a rejected request.
+        # Always release the database row lock on expected validation errors
         await session.rollback()
         raise
 
+    # Step 7: Refresh model attributes from the database and broadcast real-time event
     await session.refresh(reservation)
     await _broadcast_creation(workshop, reservation, active_count)
     logger.info(
         "reservation.created",
         workshop_id=str(workshop_id),
         reservation_id=str(reservation.id),
-        user_id=str(user.id) if user else None,
+        user_id=str(user.id),
     )
     return ReservationResponse.model_validate(reservation), False
 
@@ -180,9 +201,17 @@ async def _replay_idempotent(
     session: AsyncSession,
     workshop_id: uuid.UUID,
     idempotency_key: str,
+    user_id: uuid.UUID,
 ) -> ReservationResponse | None:
-    """Return the prior reservation for this key+workshop, if any."""
-    existing = await find_idempotent_reservation(session, workshop_id, idempotency_key)
+    """Return the caller's prior reservation for this key+workshop, if any.
+
+    The lookup is scoped to ``user_id`` on purpose. Scoping only on
+    ``(key, workshop_id)`` would let any account that guessed or
+    replayed another caller's key read back that caller's reservation,
+    including the attendee name and email carried on
+    ``ReservationResponse``.
+    """
+    existing = await find_idempotent_reservation(session, workshop_id, idempotency_key, user_id)
     if existing is None:
         return None
     return ReservationResponse.model_validate(existing)
@@ -218,16 +247,20 @@ async def _reject_duplicate_attendee(
 
 def _new_reservation(
     workshop_id: uuid.UUID,
-    payload: ReservationCreate,
-    user: User | None,
+    user: User,
     attendee_email: str,
 ) -> Reservation:
-    """Build a new in-memory ``Reservation`` ORM object."""
+    """Build a new in-memory ``Reservation`` ORM object.
+
+    The attendee identity comes from the authenticated account only,
+    so ``user_id`` is always populated and never left to a client
+    supplied value.
+    """
     return Reservation(
         workshop_id=workshop_id,
-        attendee_name=user.full_name if user else payload.attendee_name,
+        attendee_name=user.full_name,
         attendee_email=attendee_email,
-        user_id=user.id if user else None,
+        user_id=user.id,
         status=RESERVATION_STATUS_ACTIVE,
     )
 
@@ -255,18 +288,24 @@ async def _persist_idempotency_key(
     session: AsyncSession,
     idempotency_key: str,
     workshop_id: uuid.UUID,
+    user_id: uuid.UUID,
     reservation_id: uuid.UUID,
 ) -> None:
-    """Stage the idempotency record. A duplicate key race surfaces as
-    a re-read on the caller side via the IntegrityError re-raised
-    below; the reservation row is not visible until commit, so the
-    helper cannot itself detect the winner and leaves the decision
-    to the orchestrator.
+    """Stage the idempotency record.
+
+    The row is keyed by ``(key, workshop_id, user_id)``, so a collision
+    can only ever come from the *same* account retrying the same
+    request on the same workshop - which is exactly the case the
+    replay check above already resolved. A duplicate here is
+    therefore a genuine concurrent retry; the reservation row is not
+    visible until commit, so this helper cannot detect the winner and
+    leaves the decision to the orchestrator.
     """
     session.add(
         IdempotencyKey(
             key=idempotency_key,
             workshop_id=workshop_id,
+            user_id=user_id,
             reservation_id=reservation_id,
         )
     )
@@ -302,10 +341,9 @@ async def cancel_reservation(
 ) -> ReservationCancelResponse:
     """Cancel a reservation. Idempotent on a second call.
 
-    Authorization: a valid signed-in account is **required**; the
-    reservation must be owned by that account (or be an anonymous
-    legacy reservation, to preserve the historical "cancel a
-    legacy booking" path). Anonymous callers and non-owners both
+    Authorization: a valid signed-in account is **required**, and the
+    reservation must be owned by that account. An anonymous caller,
+    a non-owner, and an unowned (``user_id IS NULL``) row all
     surface as ``ReservationNotFoundError`` (404) so the response
     does not leak whether a reservation id exists. The first
     ``select`` doubles as the existence/authorization check; the
@@ -346,13 +384,13 @@ async def cancel_reservation(
     # `synchronize_session=False` lets us avoid the identity-map
     # refresh; `existing` is then refreshed explicitly afterwards. The
     # authorization predicate mirrors `_is_authorized_to_cancel` so
-    # the database enforces the same rule even if the in-memory
-    # check above is ever bypassed.
+    # the database enforces the same strict-ownership rule even if the
+    # in-memory check above is ever bypassed.
     stmt = (
         update(Reservation)
         .where(Reservation.id == reservation_id)
         .where(Reservation.status == RESERVATION_STATUS_ACTIVE)
-        .where((Reservation.user_id == user.id) | (Reservation.user_id.is_(None)))
+        .where(Reservation.user_id == user.id)
     )
     result = await session.execute(
         stmt.values(status=RESERVATION_STATUS_CANCELLED, cancelled_at=func.now())
@@ -374,7 +412,7 @@ async def cancel_reservation(
     await session.refresh(cancelled)
     workshop_id = cancelled.workshop_id
     await session.commit()
-    await _broadcast_cancellation(session, workshop_id, cancelled)
+    await _broadcast_cancellation(session, workshop_id)
     logger.info(
         "reservation.cancelled",
         workshop_id=str(workshop_id),
@@ -385,38 +423,45 @@ async def cancel_reservation(
 
 
 def _is_authorized_to_cancel(reservation: Reservation, user: User) -> bool:
-    """Return True if ``user`` is allowed to cancel ``reservation``.
+    """Return True if ``user`` is the owner of ``reservation``.
 
-    Authenticated callers may cancel only their own reservations
-    and anonymous legacy reservations. This prevents a logged-in
-    user from cancelling someone else's booking by guessing UUIDs.
-    The caller guarantees ``user is not None``; anonymous access
-    is rejected earlier in :func:`cancel_reservation`.
+    Ownership is strict: the reservation's ``user_id`` must equal the
+    caller's id. There is deliberately **no** ``user_id IS NULL``
+    carve-out. Such a carve-out (added for historical
+    "anonymous reservation" rows) handed every authenticated account
+    the right to cancel every unowned booking, which was reachable in
+    practice because :func:`create_reservation` used to accept
+    anonymous callers.
+
+    An anonymous request must never resolve here at all; the caller
+    rejects ``user is None`` before this function runs.
 
     Args:
         reservation: The reservation being cancelled.
         user: The signed-in account. Must not be ``None``.
 
     Returns:
-        True when the cancellation is permitted.
+        True only when the caller owns the reservation.
     """
-    return reservation.user_id is None or reservation.user_id == user.id
+    return reservation.user_id == user.id
 
 
 async def _broadcast_cancellation(
     session: AsyncSession,
     workshop_id: uuid.UUID,
-    cancelled: Reservation,
 ) -> None:
     """Publish a ``reservation_cancelled`` event with current spot count.
 
     Recomputes the active reservation count post-cancel so subscribers
     see the new available total without polling the detail endpoint.
 
+    The cancelled reservation's ``id`` is deliberately omitted. The
+    channel is public, and an id is a cancellation capability; see
+    :func:`_reservation_to_dict`.
+
     Args:
         session: Active async database session.
         workshop_id: Workshop whose count changed.
-        cancelled: The just-cancelled row (used for the event payload).
     """
     workshop = (
         await session.execute(select(Workshop).where(Workshop.id == workshop_id))
@@ -428,6 +473,5 @@ async def _broadcast_cancellation(
             "workshop_id": str(workshop_id),
             "type": "reservation_cancelled",
             "available_spots": max(workshop.max_capacity - active, 0),
-            "reservation_id": str(cancelled.id),
         },
     )

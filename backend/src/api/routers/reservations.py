@@ -10,13 +10,17 @@ Routes are mounted at:
 Authorization rules
 -------------------
 
-* ``create`` is open to anonymous callers; the reservation has no
-  ``user_id`` in that case.
+* ``create`` requires a valid signed-in account
+  (``get_current_user``). The reservation is always linked to that
+  account and its ``user_id`` is never null. Accepting anonymous
+  creators produced unowned rows that no account could later prove
+  ownership of, and which the cancel path used to let any signed-in
+  account cancel.
 * ``cancel`` requires a valid signed-in account
-  (``get_current_user``); a signed-in user may cancel only their
-  own bookings or anonymous legacy ones. Unauthenticated callers
-  are rejected with 401, and a caller trying to cancel a
-  reservation they do not own gets a 404 (no information leak).
+  (``get_current_user``); it succeeds only when the reservation's
+  ``user_id`` matches the caller. Unauthenticated callers are
+  rejected with 401, and a caller trying to cancel a reservation they
+  do not own gets a 404 (no information leak).
 * ``me`` requires a valid token (``get_current_user``).
 """
 
@@ -26,7 +30,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Path, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth import get_current_user, get_optional_user
+from src.auth import get_current_user
 from src.configuration.database import get_db
 from src.models.user import User
 from src.schemas.reservation import (
@@ -76,6 +80,7 @@ async def my_reservations(
     status_code=status.HTTP_201_CREATED,
     responses={
         200: {"description": "Idempotent replay of a prior successful reservation"},
+        401: {"description": "Authentication required"},
         404: {"description": "Workshop not found"},
         409: {"description": "Workshop is full or already reserved by the attendee"},
     },
@@ -96,13 +101,21 @@ async def create_reservation(
             ),
         ),
     ],
-    user: Annotated[User | None, Depends(get_optional_user)],
+    user: Annotated[User, Depends(get_current_user)],
 ) -> ReservationResponse:
     """Reserve a seat on a workshop.
 
-    Requires an ``Idempotency-Key`` header. A retried request with
-    the same key and same workshop returns the original reservation
-    with HTTP 200; a fresh request returns 201.
+    Requires a signed-in account and an ``Idempotency-Key`` header. A
+    retried request with the same key and same workshop returns the
+    original reservation with HTTP 200; a fresh request returns 201.
+    A key only ever replays the reservation created by the **same**
+    account, so reusing somebody else's key cannot disclose their
+    booking.
+
+    The body still carries ``attendee_name`` / ``attendee_email`` for
+    wire compatibility, but the authenticated account is authoritative:
+    those values are ignored and the reservation is stored against the
+    account's own name and email.
 
     The header is validated to be 1..255 characters so we do
     not silently accept a missing, empty, or absurdly large key.
@@ -113,13 +126,12 @@ async def create_reservation(
     Args:
         response: FastAPI response object, mutated to 200 on replay.
         workshop_id: Workshop UUID from the URL.
-        payload: Validated reservation body (name, email).
+        payload: Validated reservation body (name, email); ignored
+            in favour of the authenticated account.
         session: Active async database session.
         idempotency_key: Client-supplied token; same value on retry
             replays the original reservation.
-        user: The signed-in account, if any. When present, the
-            reservation is linked to the account and uses the
-            account's email rather than the body field.
+        user: The signed-in account that will own the reservation.
 
     Returns:
         The created (or replayed) reservation.

@@ -77,8 +77,7 @@ export function ReserveForm({ workshopId, onReserved, onOpenAuth }: Props) {
         disabled={submitting}
         className="flex w-full items-center justify-center gap-3 rounded-xl bg-coral px-5 py-3.5 font-bold text-white shadow-lg shadow-coral/20 transition hover:bg-coral-dark disabled:cursor-wait disabled:opacity-60 sm:w-auto"
       >
-        {submitting ? "Saving your seat..." : "Reserve my seat"}{" "}
-        <span aria-hidden="true">→</span>
+        {submitting ? "Saving your seat..." : "Reserve my seat"} <span aria-hidden="true">→</span>
       </button>
       <p className="text-xs leading-5 text-ink/70">
         Reserving as {user.email}. Your account will keep this reservation available on every

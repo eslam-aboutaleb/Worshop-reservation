@@ -67,8 +67,12 @@ async def test_find_idempotent_reservation_returns_none_when_absent(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """An unknown key returns None (not an exception)."""
+    user = _unique_user(session, "absent")
+    await session.commit()
+    await session.refresh(user)
+
     result = await reservation_queries.find_idempotent_reservation(
-        session, uuid.UUID(workshop_id), str(uuid.uuid4())
+        session, uuid.UUID(workshop_id), str(uuid.uuid4()), user.id
     )
     assert result is None
 
@@ -78,16 +82,20 @@ async def test_find_idempotent_reservation_returns_linked_reservation(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """The key points back at the reservation created in the same call."""
+    user = _unique_user(session, "linked")
+    await session.commit()
+    await session.refresh(user)
     key = str(uuid.uuid4())
     reservation, _ = await reservation_service.create_reservation(
         session=session,
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="A", attendee_email="a@example.com"),
         idempotency_key=key,
+        user=user,
     )
 
     found = await reservation_queries.find_idempotent_reservation(
-        session, uuid.UUID(workshop_id), key
+        session, uuid.UUID(workshop_id), key, user.id
     )
     assert found is not None
     assert found.id == reservation.id
@@ -98,17 +106,55 @@ async def test_find_idempotent_reservation_is_scoped_to_workshop(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """The same key on a different workshop must not match."""
+    user = _unique_user(session, "scoped")
+    await session.commit()
+    await session.refresh(user)
     key = str(uuid.uuid4())
     await reservation_service.create_reservation(
         session=session,
         workshop_id=uuid.UUID(workshop_id),
         payload=ReservationCreate(attendee_name="A", attendee_email="a@example.com"),
         idempotency_key=key,
+        user=user,
     )
 
     other_workshop_id = uuid.uuid4()
-    found = await reservation_queries.find_idempotent_reservation(session, other_workshop_id, key)
+    found = await reservation_queries.find_idempotent_reservation(
+        session, other_workshop_id, key, user.id
+    )
     assert found is None
+
+
+@pytest.mark.asyncio
+async def test_find_idempotent_reservation_is_scoped_to_caller(
+    session: AsyncSession, workshop_id: str
+) -> None:
+    """Reusing another account's key must not resolve to their reservation.
+
+    The key is a client-supplied opaque string, not a credential. If
+    the lookup ignored the caller, any account that replayed a
+    victim's key would read back the victim's reservation - attendee
+    name and email included - straight from the replay response.
+    """
+    owner = _unique_user(session, "keyowner")
+    attacker = _unique_user(session, "keythief")
+    await session.commit()
+    await session.refresh(owner)
+    await session.refresh(attacker)
+    key = str(uuid.uuid4())
+    reservation, _ = await reservation_service.create_reservation(
+        session=session,
+        workshop_id=uuid.UUID(workshop_id),
+        payload=ReservationCreate(attendee_name="Owner", attendee_email="owner@example.com"),
+        idempotency_key=key,
+        user=owner,
+    )
+
+    leaked = await reservation_queries.find_idempotent_reservation(
+        session, uuid.UUID(workshop_id), key, attacker.id
+    )
+    assert leaked is None
+    assert leaked is not reservation
 
 
 @pytest.mark.asyncio

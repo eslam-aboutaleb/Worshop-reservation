@@ -74,10 +74,10 @@ def create_app() -> FastAPI:
             method=request.method,
             path=request.url.path,
         )
-        
+
         start_time = time.perf_counter()
         logger = structlog.stdlib.get_logger("api.access")
-        
+
         try:
             response = await call_next(request)
             process_time = time.perf_counter() - start_time
@@ -87,7 +87,7 @@ def create_app() -> FastAPI:
                 duration_ms=round(process_time * 1000, 2),
             )
             return response
-        except Exception as exc:
+        except Exception:
             process_time = time.perf_counter() - start_time
             logger.exception(
                 "request_failed",

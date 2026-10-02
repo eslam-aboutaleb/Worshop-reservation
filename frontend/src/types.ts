@@ -72,21 +72,18 @@ export interface MyReservation extends Reservation {
   workshop_title: string;
 }
 
-/** Payload published on the `/api/workshops/events` SSE stream. */
+/** Payload published on the `/api/workshops/events` SSE stream.
+ *
+ * The stream is unauthenticated, so it carries aggregate counts only.
+ * It deliberately publishes no reservation identifier: an id is a
+ * cancellation capability, and broadcasting one handed every visitor
+ * a list of bookings to attack. A client that owns a reservation gets
+ * its id from `GET /api/reservations/me`. */
 export interface SSEEvent {
   workshop_id: string;
   type: "reservation_created" | "reservation_cancelled" | "workshop_created" | "workshop_deleted";
   available_spots?: number;
-  /** Full reservation payload; present on `reservation_created` only.
-   *  The public broadcast channel intentionally omits the attendee's
-   *  name and email; only ``id`` and ``status`` are sent. */
   reservation?: {
-    id: string;
     status: string;
-    attendee_name?: string;
-    attendee_email?: string;
-    created_at?: string;
   };
-  /** Reservation id; present on `reservation_cancelled` only. */
-  reservation_id?: string;
 }

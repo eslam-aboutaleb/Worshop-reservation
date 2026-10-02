@@ -1,7 +1,10 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+# ``npm ci`` installs the exact tree in package-lock.json. It fails
+# rather than silently resolving different versions, which is what
+# ``npm install`` would do and what made builds unreproducible.
+RUN npm ci
 COPY . .
 RUN npm run build
 

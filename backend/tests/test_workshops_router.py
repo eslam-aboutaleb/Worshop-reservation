@@ -11,6 +11,7 @@ import pytest
 from httpx import AsyncClient
 
 from src.main import app  # noqa: F401  (kept for documentation/future use)
+from tests.conftest import api_signup, auth_headers
 
 
 @pytest.mark.asyncio
@@ -31,10 +32,11 @@ async def test_list_includes_new_workshop(client: AsyncClient, workshop_id: str)
 async def test_list_reflects_reservations(client: AsyncClient, workshop_id: str) -> None:
     """available_spots in the list view decrements as reservations are made."""
     for i in range(2):
+        token, _ = await api_signup(client)
         create = await client.post(
             f"/api/workshops/{workshop_id}/reservations",
             json={"attendee_name": f"U{i}", "attendee_email": f"u{i}@example.com"},
-            headers={"Idempotency-Key": str(uuid.uuid4())},
+            headers=auth_headers(token, **{"Idempotency-Key": str(uuid.uuid4())}),
         )
         assert create.status_code == 201
 
@@ -46,11 +48,13 @@ async def test_list_reflects_reservations(client: AsyncClient, workshop_id: str)
 @pytest.mark.asyncio
 async def test_detail_returns_full_payload(client: AsyncClient, workshop_id: str) -> None:
     """The detail endpoint returns the workshop, available spots, and reservations."""
+    token, _ = await api_signup(client)
     await client.post(
         f"/api/workshops/{workshop_id}/reservations",
         json={"attendee_name": "Detail", "attendee_email": "detail@example.com"},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
+        headers=auth_headers(token, **{"Idempotency-Key": str(uuid.uuid4())}),
     )
+    client.cookies.clear()
     response = await client.get(f"/api/workshops/{workshop_id}")
     assert response.status_code == 200
     payload = response.json()
@@ -96,23 +100,19 @@ async def test_detail_signed_in_user_does_not_see_others_reservation(
     client: AsyncClient, workshop_id: str
 ) -> None:
     """A signed-in user must not see another user's reservation in the list."""
-    # Create a workshop owner reservation.
+    # The other attendee books a seat first.
+    other_token, _ = await api_signup(client, full_name="Other")
     other = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
         json={"attendee_name": "Other", "attendee_email": f"other_{uuid.uuid4()}@example.com"},
-        headers={"Idempotency-Key": str(uuid.uuid4())},
+        headers=auth_headers(other_token, **{"Idempotency-Key": str(uuid.uuid4())}),
     )
     other_id = other.json()["id"]
-    # Different signed-in user views the same workshop.
-    email = f"me_{uuid.uuid4()}@example.com"
-    signup = await client.post(
-        "/api/auth/signup",
-        json={"full_name": "Me", "email": email, "password": "Password123!"},
-    )
-    token = signup.json()["access_token"]
+    # A different signed-in user views the same workshop.
+    token, _ = await api_signup(client, full_name="Me")
     response = await client.get(
         f"/api/workshops/{workshop_id}",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=auth_headers(token),
     )
     assert response.status_code == 200
     assert all(r["id"] != other_id for r in response.json()["reservations"])
