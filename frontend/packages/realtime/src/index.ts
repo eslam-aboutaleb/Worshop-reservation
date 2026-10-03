@@ -75,10 +75,7 @@ export interface EventStream {
  * stream.close();
  * ```
  */
-export function createEventStream(
-  url: string,
-  deps: EventStreamDeps = {},
-): EventStream {
+export function createEventStream(url: string, deps: EventStreamDeps = {}): EventStream {
   const EventSourceCtor = deps.EventSourceCtor ?? EventSource;
   const source = new EventSourceCtor(url);
   const handlers = new Set<(event: SSEEvent) => void>();
@@ -91,7 +88,14 @@ export function createEventStream(
       // Ignore malformed events; the next valid event will recover.
       return;
     }
-    for (const handler of handlers) handler(parsed);
+    for (const handler of handlers) {
+      try {
+        handler(parsed);
+      } catch {
+        // One throwing handler must not skip the remaining
+        // handlers or escape into the EventSource callback.
+      }
+    }
   };
 
   return {

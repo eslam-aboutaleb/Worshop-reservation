@@ -207,9 +207,7 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
        * @param params - Search, filter, and pagination options.
        * @returns The paginated workshop envelope.
        */
-      async listWorkshops(
-        params: WorkshopListParams = {},
-      ): Promise<WorkshopListEnvelope> {
+      async listWorkshops(params: WorkshopListParams = {}): Promise<WorkshopListEnvelope> {
         const query = new URLSearchParams();
         if (params.q) query.set("q", params.q);
         if (params.category) query.set("category", params.category);
@@ -244,10 +242,7 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
       },
 
       /** Edit a workshop's mutable fields as the configured administrator. */
-      async updateWorkshop(
-        id: string,
-        payload: WorkshopUpdatePayload,
-      ): Promise<Workshop> {
+      async updateWorkshop(id: string, payload: WorkshopUpdatePayload): Promise<Workshop> {
         return request<Workshop>(`/workshops/${id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -309,11 +304,7 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
        * @param text - Optional comment (max 4000 chars).
        * @returns The created review.
        */
-      async createReview(
-        workshopId: string,
-        rating: number,
-        text: string,
-      ): Promise<Review> {
+      async createReview(workshopId: string, rating: number, text: string): Promise<Review> {
         return request<Review>(`/workshops/${workshopId}/reviews`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -437,9 +428,7 @@ export function createApiClient(config: ApiClientConfig = {}): ApiClient {
        * @returns The new organization with the creator's
        *   `owner` membership.
        */
-      async createOrganization(
-        payload: OrganizationCreatePayload,
-      ): Promise<Organization> {
+      async createOrganization(payload: OrganizationCreatePayload): Promise<Organization> {
         return request<Organization>("/organizations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

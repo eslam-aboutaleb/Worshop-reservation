@@ -19,19 +19,19 @@ const workshops = await client.workshops.listWorkshops({ state: "upcoming" });
 ```ts
 const client = createApiClient({
   baseUrl: "http://localhost:8000/api", // bypass the dev proxy
-  fetchImpl: myFetch,                      // injectable (tests, logging)
+  fetchImpl: myFetch, // injectable (tests, logging)
 });
 ```
 
 ### Endpoint groups
 
-| Group | Functions |
-|-------|-----------|
-| `auth` | `signup`, `login`, `logout`, `getMe` |
-| `workshops` | `listWorkshops`, `getWorkshop`, `createWorkshop`, `updateWorkshop`, `publishWorkshop`, `cancelWorkshop`, `deleteWorkshop`, `getOrganizerStats`, `createReview` |
-| `reservations` | `createReservation`, `cancelReservation`, `getReservation`, `listMyReservations` |
-| `waitlist` | `joinWaitlist`, `leaveWaitlist`, `listMyWaitlistEntries` |
-| `organizations` | `createOrganization`, `followOrganization`, `unfollowOrganization` |
+| Group           | Functions                                                                                                                                                      |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auth`          | `signup`, `login`, `logout`, `getMe`                                                                                                                           |
+| `workshops`     | `listWorkshops`, `getWorkshop`, `createWorkshop`, `updateWorkshop`, `publishWorkshop`, `cancelWorkshop`, `deleteWorkshop`, `getOrganizerStats`, `createReview` |
+| `reservations`  | `createReservation`, `cancelReservation`, `getReservation`, `listMyReservations`                                                                               |
+| `waitlist`      | `joinWaitlist`, `leaveWaitlist`, `listMyWaitlistEntries`                                                                                                       |
+| `organizations` | `createOrganization`, `followOrganization`, `unfollowOrganization`                                                                                             |
 
 Function names match the historical module-level exports
 (`listWorkshops`, `createReservation`, …). `createReservation`

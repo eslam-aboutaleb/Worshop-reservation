@@ -11,8 +11,8 @@ const stream = createEventStream("/api/workshops/events");
 const sub = stream.subscribe((event) => {
   console.log(event.workshop_id, event.type);
 });
-sub.unsubscribe();   // or stream.unsubscribe(handler)
-stream.close();      // drop all handlers + close the connection
+sub.unsubscribe(); // or stream.unsubscribe(handler)
+stream.close(); // drop all handlers + close the connection
 ```
 
 `createEventStream(url, deps?)` accepts an injected

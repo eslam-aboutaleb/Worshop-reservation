@@ -20,14 +20,6 @@
  * @source "../packages/ui/src";
  * ```
  */
-export {
-  ConfirmDialog,
-  type Props as ConfirmDialogProps,
-} from "./ConfirmDialog";
+export { ConfirmDialog, type Props as ConfirmDialogProps } from "./ConfirmDialog";
 export { ErrorBoundary } from "./ErrorBoundary";
-export {
-  ToastProvider,
-  useToast,
-  useToastError,
-  getToastErrorMessage,
-} from "./Toast";
+export { ToastProvider, useToast, useToastError, getToastErrorMessage } from "./Toast";

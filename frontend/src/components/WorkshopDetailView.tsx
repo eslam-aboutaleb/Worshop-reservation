@@ -398,7 +398,8 @@ export function WorkshopDetailView({
   // The backend remains authoritative — the 409s are
   // handled with friendly inline copy.
   const sessionEnded = new Date(detail.ends_at ?? detail.starts_at) < now;
-  const hasReviewed = user !== null && (detail.reviews ?? []).some((review) => review.user_id === user.id);
+  const hasReviewed =
+    user !== null && (detail.reviews ?? []).some((review) => review.user_id === user.id);
   const canReview = sessionEnded && hasSeat && !hasReviewed;
   const registrationDeadline = detail.registration_closes_at ?? detail.starts_at;
   const registrationClosed = new Date(registrationDeadline) < now;

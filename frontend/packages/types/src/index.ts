@@ -73,8 +73,7 @@ export type AuthResponse = components["schemas"]["AuthResponse"];
 export type MyReservation = components["schemas"]["MyReservationResponse"];
 
 /** A user's membership in an organization. */
-export type OrganizationMembership =
-  components["schemas"]["OrganizationMembershipResponse"];
+export type OrganizationMembership = components["schemas"]["OrganizationMembershipResponse"];
 
 /**
  * Organization payload returned by the organizations API.
@@ -107,16 +106,13 @@ export type MyWaitlistEntry = components["schemas"]["MyWaitlistEntryResponse"];
  * One reservation on an organizer-managed workshop, as
  * returned by the organizer dashboard.
  */
-export type OrganizerAttendeeSummary =
-  components["schemas"]["OrganizerAttendeeSummary"];
+export type OrganizerAttendeeSummary = components["schemas"]["OrganizerAttendeeSummary"];
 
 /** Per-workshop breakdown on the organizer dashboard. */
-export type OrganizerWorkshopStats =
-  components["schemas"]["OrganizerWorkshopStats"];
+export type OrganizerWorkshopStats = components["schemas"]["OrganizerWorkshopStats"];
 
 /** Payload returned by `GET /api/organizer/stats`. */
-export type OrganizerDashboardResponse =
-  components["schemas"]["OrganizerDashboardResponse"];
+export type OrganizerDashboardResponse = components["schemas"]["OrganizerDashboardResponse"];
 
 /* ------------------------------------------------------------------ */
 /* Request payloads (aliases of the generated body schemas)           */
@@ -132,8 +128,7 @@ export type WorkshopCreatePayload = components["schemas"]["WorkshopCreate"];
 export type WorkshopUpdatePayload = components["schemas"]["WorkshopUpdate"];
 
 /** Payload for creating an organization. */
-export type OrganizationCreatePayload =
-  components["schemas"]["OrganizationCreate"];
+export type OrganizationCreatePayload = components["schemas"]["OrganizationCreate"];
 
 /* ------------------------------------------------------------------ */
 /* Hand-maintained types (NOT in the OpenAPI document)                */

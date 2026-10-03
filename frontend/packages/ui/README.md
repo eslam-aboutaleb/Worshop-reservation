@@ -4,14 +4,14 @@ Shared React UI primitives for the workshop-reservation platform.
 
 ## Exports
 
-| Export | Description |
-|--------|-------------|
-| `ToastProvider` | Toast context provider; renders the toast region |
-| `useToast` | `showToast(message, kind?)` accessor |
-| `useToastError(error, onClear)` | Show an API error exactly once (StrictMode-safe) |
-| `getToastErrorMessage(error)` | Map `ApiError` codes to user-facing copy |
-| `ConfirmDialog` | Destructive-action confirmation modal (focus trap, Escape) |
-| `ErrorBoundary` | Render error boundary with a reload fallback |
+| Export                          | Description                                                |
+| ------------------------------- | ---------------------------------------------------------- |
+| `ToastProvider`                 | Toast context provider; renders the toast region           |
+| `useToast`                      | `showToast(message, kind?)` accessor                       |
+| `useToastError(error, onClear)` | Show an API error exactly once (StrictMode-safe)           |
+| `getToastErrorMessage(error)`   | Map `ApiError` codes to user-facing copy                   |
+| `ConfirmDialog`                 | Destructive-action confirmation modal (focus trap, Escape) |
+| `ErrorBoundary`                 | Render error boundary with a reload fallback               |
 
 ## Styling
 

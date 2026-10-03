@@ -146,10 +146,7 @@ export function AdminView({ onClose }: Props) {
   }, []);
 
   const loadStats = useCallback(() => {
-    getApiClient()
-      .workshops.getOrganizerStats()
-      .then(setStats)
-      .catch(setError);
+    getApiClient().workshops.getOrganizerStats().then(setStats).catch(setError);
   }, []);
 
   useEffect(() => {
