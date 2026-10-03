@@ -21,8 +21,8 @@ import { useState } from "react";
 
 import { useAuth } from "../features/auth/AuthContext";
 import { useWorkshopList } from "../features/workshops/hooks/useWorkshopList";
+import { useToast, useToastError } from "@ws/ui";
 import { AuthPanel } from "./AuthPanel";
-import { useToast, useToastError } from "./Toast";
 import { formatDate, formatTime } from "../utils/formatters";
 
 /**
@@ -345,7 +345,7 @@ export function WorkshopListView({
               {workshops.map((workshop, index) => {
                 const spots = spotOverrides[workshop.id] ?? workshop.available_spots;
                 const full = spots === 0;
-                const ended = workshop.ends_at !== null && new Date(workshop.ends_at) < now;
+                const ended = workshop.ends_at != null && new Date(workshop.ends_at) < now;
                 const registrationDeadline = workshop.registration_closes_at ?? workshop.starts_at;
                 const registrationClosed = new Date(registrationDeadline) < now;
                 const badgeLabel = ended

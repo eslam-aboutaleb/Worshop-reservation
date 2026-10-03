@@ -12,8 +12,8 @@ import ReactDOM from "react-dom/client";
 
 import { App } from "./App";
 import { AuthProvider } from "./features/auth/AuthContext";
-import { ErrorBoundary } from "./components/ErrorBoundary";
-import { ToastProvider } from "./components/Toast";
+import { ErrorBoundary, ToastProvider } from "@ws/ui";
+import { logger } from "./utils/logger";
 import "./index.css";
 
 const rootElement = document.getElementById("root");
@@ -21,7 +21,14 @@ if (!rootElement) throw new Error("Root element #root not found in index.html");
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <ErrorBoundary>
+    <ErrorBoundary
+      onError={(error, errorInfo) =>
+        logger.error("React component boundary caught error", {
+          error,
+          errorInfo,
+        })
+      }
+    >
       <ToastProvider>
         <AuthProvider>
           <App />

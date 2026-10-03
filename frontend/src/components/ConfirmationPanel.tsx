@@ -13,7 +13,7 @@
  */
 import { QRCodeSVG } from "qrcode.react";
 
-import type { Reservation } from "../types";
+import type { Reservation } from "@ws/types";
 
 interface Props {
   /** The reservation that was just created. */
@@ -38,10 +38,10 @@ export function ConfirmationPanel({ reservation }: Props) {
       <h2 className="display-font mt-2 text-2xl font-bold">You&apos;re in.</h2>
       <div className="mt-5 flex items-center gap-5">
         <QRCodeSVG
-          value={reservation.booking_code}
+          value={reservation.booking_code ?? ""}
           size={120}
           level="M"
-          title={`QR code for booking ${reservation.booking_code}`}
+          title={`QR code for booking ${reservation.booking_code ?? ""}`}
         />
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wider text-ink/60">Booking code</p>
@@ -49,7 +49,7 @@ export function ConfirmationPanel({ reservation }: Props) {
             id="reserve-confirmation-code"
             className="display-font mt-1 text-3xl font-bold tracking-[.15em]"
           >
-            {reservation.booking_code}
+            {reservation.booking_code ?? ""}
           </p>
           <p className="mt-2 text-sm leading-5 text-ink/75">
             Show this code at the door — it scans straight from your phone screen.

@@ -21,7 +21,9 @@
  */
 import { useEffect, useState } from "react";
 
-import { ApiError, login, signup } from "../api";
+import { ApiError } from "@ws/api-client";
+
+import { getApiClient } from "../apiClient";
 import { useAuth } from "../features/auth/AuthContext";
 
 /**
@@ -112,8 +114,8 @@ export function AuthPanel({
     try {
       const result =
         mode === "signup"
-          ? await signup(name.trim(), email.trim(), password)
-          : await login(email.trim(), password);
+          ? await getApiClient().auth.signup(name.trim(), email.trim(), password)
+          : await getApiClient().auth.login(email.trim(), password);
       setSession(result.user);
       setPassword("");
       setOpen(false);

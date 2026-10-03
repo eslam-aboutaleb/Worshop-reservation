@@ -32,20 +32,12 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import {
-  ApiError,
-  cancelWorkshop,
-  createWorkshop,
-  deleteWorkshop,
-  getOrganizerStats,
-  getWorkshop,
-  listWorkshops,
-  publishWorkshop,
-  updateWorkshop,
-} from "../api";
-import type { OrganizerDashboardResponse, Workshop } from "../types";
-import { useToast, useToastError } from "./Toast";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ApiError } from "@ws/api-client";
+import type { OrganizerDashboardResponse, Workshop } from "@ws/types";
+
+import { getApiClient } from "../apiClient";
+import { useToast, useToastError } from "@ws/ui";
+import { ConfirmDialog } from "@ws/ui";
 import { formatDate, formatTime } from "../utils/formatters";
 
 interface Props {
@@ -146,14 +138,18 @@ export function AdminView({ onClose }: Props) {
     // The admin manager lists every session regardless of
     // timing, so it asks for the "all" state and the
     // largest page the endpoint allows.
-    listWorkshops({ state: "all", limit: 100 })
+    getApiClient()
+      .workshops.listWorkshops({ state: "all", limit: 100 })
       .then((envelope) => setWorkshops(envelope.items))
       .catch(setError)
       .finally(() => setListLoading(false));
   }, []);
 
   const loadStats = useCallback(() => {
-    getOrganizerStats().then(setStats).catch(setError);
+    getApiClient()
+      .workshops.getOrganizerStats()
+      .then(setStats)
+      .catch(setError);
   }, []);
 
   useEffect(() => {
@@ -189,23 +185,24 @@ export function AdminView({ onClose }: Props) {
     setEditingId(workshop.id);
     setTitle(workshop.title);
     setStartsAt(toLocalInput(workshop.starts_at));
-    setHasEndsAt(workshop.ends_at !== null);
-    setEndsAt(workshop.ends_at !== null ? toLocalInput(workshop.ends_at) : "");
-    setHasRegistrationClosesAt(workshop.registration_closes_at !== null);
+    setHasEndsAt(workshop.ends_at != null);
+    setEndsAt(workshop.ends_at != null ? toLocalInput(workshop.ends_at) : "");
+    setHasRegistrationClosesAt(workshop.registration_closes_at != null);
     setRegistrationClosesAt(
-      workshop.registration_closes_at !== null ? toLocalInput(workshop.registration_closes_at) : "",
+      workshop.registration_closes_at != null ? toLocalInput(workshop.registration_closes_at) : "",
     );
     setCapacity(String(workshop.max_capacity));
     setDescription("");
     setCategory("");
     setLocation("");
     detailRequestId.current = workshop.id;
-    getWorkshop(workshop.id)
+    getApiClient()
+      .workshops.getWorkshop(workshop.id)
       .then((detail) => {
         if (detailRequestId.current !== workshop.id) return;
-        setDescription(detail.description);
-        setCategory(detail.category);
-        setLocation(detail.location);
+        setDescription(detail.description ?? "");
+        setCategory(detail.category ?? "");
+        setLocation(detail.location ?? "");
       })
       .catch(setError);
   }
@@ -221,7 +218,7 @@ export function AdminView({ onClose }: Props) {
 
   /** Look up the organizer-stats row for a workshop. */
   function statsFor(workshopId: string) {
-    return stats?.workshops.find((entry) => entry.workshop_id === workshopId) ?? null;
+    return stats?.workshops?.find((entry) => entry.workshop_id === workshopId) ?? null;
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -303,11 +300,11 @@ export function AdminView({ onClose }: Props) {
     setSubmitting(true);
     try {
       if (editingId) {
-        const updated = await updateWorkshop(editingId, payload);
+        const updated = await getApiClient().workshops.updateWorkshop(editingId, payload);
         setWorkshops((items) => items.map((item) => (item.id === editingId ? updated : item)));
         showToast("Session updated.", "success");
       } else {
-        const created = await createWorkshop(payload);
+        const created = await getApiClient().workshops.createWorkshop(payload);
         setWorkshops((items) => [...items, created]);
         showToast("Workshop created and added to the calendar.", "success");
       }
@@ -327,7 +324,7 @@ export function AdminView({ onClose }: Props) {
   async function handlePublish(workshopId: string) {
     setPublishingId(workshopId);
     try {
-      const updated = await publishWorkshop(workshopId);
+      const updated = await getApiClient().workshops.publishWorkshop(workshopId);
       setWorkshops((items) => items.map((item) => (item.id === workshopId ? updated : item)));
       showToast("Session published and now bookable.", "success");
       loadStats();
@@ -341,7 +338,7 @@ export function AdminView({ onClose }: Props) {
   async function handleCancel(workshopId: string) {
     setCancellingId(workshopId);
     try {
-      const updated = await cancelWorkshop(workshopId);
+      const updated = await getApiClient().workshops.cancelWorkshop(workshopId);
       setWorkshops((items) => items.map((item) => (item.id === workshopId ? updated : item)));
       showToast("Session cancelled.", "success");
       loadStats();
@@ -355,7 +352,7 @@ export function AdminView({ onClose }: Props) {
   async function handleDelete(workshopId: string) {
     setDeletingId(workshopId);
     try {
-      await deleteWorkshop(workshopId);
+      await getApiClient().workshops.deleteWorkshop(workshopId);
       setWorkshops((items) => items.filter((item) => item.id !== workshopId));
       showToast("Workshop deleted from the calendar.", "success");
       loadStats();
@@ -629,7 +626,7 @@ export function AdminView({ onClose }: Props) {
             <ul id="admin-workshop-list" className="mt-6 space-y-3">
               {workshops.map((workshop) => {
                 const workshopStats = statsFor(workshop.id);
-                const attendeeCount = workshopStats?.attendees.length ?? 0;
+                const attendeeCount = workshopStats?.attendees?.length ?? 0;
                 const expanded = expandedIds.includes(workshop.id);
                 const statusBadge =
                   workshop.status === "draft"
@@ -714,12 +711,12 @@ export function AdminView({ onClose }: Props) {
                         className="mt-2 space-y-2"
                         aria-label={`Attendees for ${workshop.title}`}
                       >
-                        {workshopStats === null || workshopStats.attendees.length === 0 ? (
+                        {workshopStats === null || (workshopStats.attendees ?? []).length === 0 ? (
                           <li className="rounded-xl border border-dashed border-line px-4 py-3 text-xs text-ink/70">
                             No attendees yet.
                           </li>
                         ) : (
-                          workshopStats.attendees.map((attendee) => (
+                          (workshopStats.attendees ?? []).map((attendee) => (
                             <li
                               key={attendee.reservation_id}
                               id={`admin-workshop-attendee-${attendee.reservation_id}`}

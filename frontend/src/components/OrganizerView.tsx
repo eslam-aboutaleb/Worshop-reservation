@@ -27,9 +27,11 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, createWorkshop, getOrganizerStats } from "../api";
-import type { OrganizerDashboardResponse } from "../types";
-import { useToast, useToastError } from "./Toast";
+import { ApiError } from "@ws/api-client";
+import type { OrganizerDashboardResponse } from "@ws/types";
+
+import { getApiClient } from "../apiClient";
+import { useToast, useToastError } from "@ws/ui";
 import { formatDate, formatTime } from "../utils/formatters";
 
 interface Props {
@@ -93,7 +95,8 @@ export function OrganizerView({ onClose }: Props) {
 
   const loadStats = useCallback(() => {
     setLoading(true);
-    getOrganizerStats()
+    getApiClient()
+      .workshops.getOrganizerStats()
       .then(setStats)
       .catch(setError)
       .finally(() => setLoading(false));
@@ -148,7 +151,7 @@ export function OrganizerView({ onClose }: Props) {
 
     setSubmitting(true);
     try {
-      await createWorkshop({
+      await getApiClient().workshops.createWorkshop({
         title: title.trim(),
         starts_at: toIso(startsAt),
         max_capacity: capacityNumber,
@@ -358,7 +361,7 @@ export function OrganizerView({ onClose }: Props) {
               <div className="h-28 animate-pulse rounded-3xl bg-sand" />
               <div className="h-28 animate-pulse rounded-3xl bg-sand" />
             </div>
-          ) : !stats || stats.workshops.length === 0 ? (
+          ) : !stats || (stats.workshops ?? []).length === 0 ? (
             <div
               id="organizer-workshop-empty"
               className="mt-6 rounded-3xl border border-dashed border-line bg-paper/60 px-6 py-14 text-center"
@@ -368,7 +371,7 @@ export function OrganizerView({ onClose }: Props) {
             </div>
           ) : (
             <ul id="organizer-workshop-list" className="mt-6 space-y-3">
-              {stats.workshops.map((workshop) => {
+              {(stats.workshops ?? []).map((workshop) => {
                 const expanded = expandedIds.includes(workshop.workshop_id);
                 const statusBadge =
                   workshop.status === "draft"
@@ -414,7 +417,7 @@ export function OrganizerView({ onClose }: Props) {
                     >
                       <span>Attendees</span>
                       <span aria-hidden="true">
-                        {expanded ? "▾" : "▸"} {workshop.attendees.length}
+                        {expanded ? "▾" : "▸"} {(workshop.attendees ?? []).length}
                       </span>
                     </button>
                     {expanded && (
@@ -423,12 +426,12 @@ export function OrganizerView({ onClose }: Props) {
                         className="mt-2 space-y-2"
                         aria-label={`Attendees for ${workshop.title}`}
                       >
-                        {workshop.attendees.length === 0 ? (
+                        {(workshop.attendees ?? []).length === 0 ? (
                           <li className="rounded-xl border border-dashed border-line px-4 py-3 text-xs text-ink/70">
                             No attendees yet.
                           </li>
                         ) : (
-                          workshop.attendees.map((attendee) => (
+                          (workshop.attendees ?? []).map((attendee) => (
                             <li
                               key={attendee.reservation_id}
                               id={`organizer-workshop-attendee-${attendee.reservation_id}`}

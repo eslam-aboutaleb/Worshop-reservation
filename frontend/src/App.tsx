@@ -31,8 +31,8 @@ import { TicketsView } from "./components/TicketsView";
 import { WorkshopDetailView } from "./components/WorkshopDetailView";
 import { WorkshopListView } from "./components/WorkshopListView";
 import { useAuth } from "./features/auth/AuthContext";
-import { useEventSource } from "./useEventSource";
-import type { SSEEvent } from "./types";
+import { useEventStream } from "@ws/realtime/react";
+import type { SSEEvent } from "@ws/types";
 
 const PAGE_TITLES: Record<string, string> = {
   home: "Workshop Reservations",
@@ -61,7 +61,7 @@ export function App() {
     }
     setLiveEvent(event);
   }, []);
-  useEventSource(handleEvent);
+  useEventStream(handleEvent);
 
   const handleSpotsChanged = useCallback((id: string, spots: number) => {
     setSpotOverrides((previous) => ({ ...previous, [id]: spots }));

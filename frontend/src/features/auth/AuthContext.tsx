@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState } from "react";
 
-import { getMe, logout } from "../../api";
-import type { User } from "../../types";
+import type { User } from "@ws/types";
+
+import { getApiClient } from "../../apiClient";
 
 type AuthContextValue = {
   user: User | null;
@@ -17,7 +18,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
-    getMe()
+    getApiClient()
+      .auth.getMe()
       .then((hydrated) => setUser(hydrated))
       .catch(() => setUser(null))
       .finally(() => setIsRestoring(false));
@@ -29,7 +31,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     try {
-      await logout();
+      await getApiClient().auth.logout();
     } finally {
       setUser(null);
     }

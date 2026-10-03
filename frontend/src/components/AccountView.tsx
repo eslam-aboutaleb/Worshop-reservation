@@ -19,13 +19,15 @@
  */
 import { useState } from "react";
 
-import { ApiError, createOrganization, getMe } from "../api";
+import { ApiError } from "@ws/api-client";
+import type { Organization } from "@ws/types";
+
+import { getApiClient } from "../apiClient";
 import { useAuth } from "../features/auth/AuthContext";
 import { useMyReservations } from "../features/reservations/hooks/useMyReservations";
 import { useMyWaitlistEntries } from "../features/reservations/hooks/useMyWaitlistEntries";
-import type { Organization } from "../types";
-import { useToast, useToastError, getToastErrorMessage } from "./Toast";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { getToastErrorMessage, useToast, useToastError } from "@ws/ui";
+import { ConfirmDialog } from "@ws/ui";
 import { formatDate } from "../utils/formatters";
 
 interface Props {
@@ -79,7 +81,7 @@ export function AccountView({ onClose }: Props) {
     }
     setOrgSubmitting(true);
     try {
-      const created = await createOrganization({
+      const created = await getApiClient().organizations.createOrganization({
         name,
         slug: orgSlug.trim() || undefined,
       });
@@ -87,7 +89,7 @@ export function AccountView({ onClose }: Props) {
       // The promotion to `organizer` happens in the same
       // transaction as the create; rehydrate the session
       // so the Organizer nav item appears without a reload.
-      const fresh = await getMe();
+      const fresh = await getApiClient().auth.getMe();
       setSession(fresh);
       showToast("Organization created. You're an organizer now.", "success");
     } catch (requestError) {

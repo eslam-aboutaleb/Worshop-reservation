@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
-import { listMyWaitlistEntries } from "../../../api";
-import type { MyWaitlistEntry } from "../../../types";
+import type { MyWaitlistEntry } from "@ws/types";
+
+import { getApiClient } from "../../../apiClient";
 
 export function useMyWaitlistEntries() {
   const [entries, setEntries] = useState<MyWaitlistEntry[]>([]);
@@ -9,7 +10,8 @@ export function useMyWaitlistEntries() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    listMyWaitlistEntries()
+    getApiClient()
+      .waitlist.listMyWaitlistEntries()
       .then(setEntries)
       .catch(setError)
       .finally(() => setLoading(false));

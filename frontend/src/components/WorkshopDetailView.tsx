@@ -32,24 +32,18 @@
  */
 import { useEffect, useState } from "react";
 
-import {
-  ApiError,
-  createReview,
-  followOrganization,
-  joinWaitlist,
-  leaveWaitlist,
-  listWorkshops,
-  unfollowOrganization,
-} from "../api";
+import { ApiError } from "@ws/api-client";
+import type { Reservation, SSEEvent } from "@ws/types";
+
+import { getApiClient } from "../apiClient";
 import { useAuth } from "../features/auth/AuthContext";
 import { useWorkshopDetail } from "../features/workshops/hooks/useWorkshopDetail";
-import type { Reservation, SSEEvent } from "../types";
-import { getToastErrorMessage, useToast, useToastError } from "./Toast";
+import { getToastErrorMessage, useToast, useToastError } from "@ws/ui";
+import { ConfirmDialog } from "@ws/ui";
 import { formatDate, formatTime } from "../utils/formatters";
 import { AuthPanel } from "./AuthPanel";
 import { ConfirmationPanel } from "./ConfirmationPanel";
 import { ReserveForm } from "./ReserveForm";
-import { ConfirmDialog } from "./ConfirmDialog";
 
 interface Props {
   /** Workshop to display. */
@@ -215,7 +209,8 @@ export function WorkshopDetailView({
       return;
     }
     let active = true;
-    listWorkshops({ following: true, limit: 100 })
+    getApiClient()
+      .workshops.listWorkshops({ following: true, limit: 100 })
       .then((envelope) => {
         if (!active) return;
         setFollowing(envelope.items.some((item) => item.organization_id === organizationId));
@@ -247,13 +242,13 @@ export function WorkshopDetailView({
     setFollowMessage(null);
     try {
       if (following) {
-        const updated = await unfollowOrganization(organizationId);
-        setFollowersCount(updated.followers_count);
+        const updated = await getApiClient().organizations.unfollowOrganization(organizationId);
+        setFollowersCount(updated.followers_count ?? 0);
         setFollowing(false);
         showToast("You unfollowed this organization.", "info");
       } else {
-        const updated = await followOrganization(organizationId);
-        setFollowersCount(updated.followers_count);
+        const updated = await getApiClient().organizations.followOrganization(organizationId);
+        setFollowersCount(updated.followers_count ?? 0);
         setFollowing(true);
         showToast("You're now following this organization.", "success");
       }
@@ -285,7 +280,7 @@ export function WorkshopDetailView({
     setReviewError(null);
     setReviewSubmitting(true);
     try {
-      await createReview(workshopId, reviewRating, reviewText.trim());
+      await getApiClient().workshops.createReview(workshopId, reviewRating, reviewText.trim());
       setReviewText("");
       setReviewRating(5);
       await refresh();
@@ -316,7 +311,7 @@ export function WorkshopDetailView({
     }
     setWaitlistBusy(true);
     try {
-      const response = await joinWaitlist(workshopId);
+      const response = await getApiClient().waitlist.joinWaitlist(workshopId);
       setWaitlistEntryId(response.entry.id);
       saveWaitlistEntryId(workshopId, response.entry.id);
       await refresh();
@@ -345,7 +340,7 @@ export function WorkshopDetailView({
     }
     setLeavingWaitlist(true);
     try {
-      await leaveWaitlist(entryId);
+      await getApiClient().waitlist.leaveWaitlist(entryId);
       setWaitlistEntryId(null);
       saveWaitlistEntryId(workshopId, null);
       await refresh();
@@ -395,7 +390,7 @@ export function WorkshopDetailView({
   const full = spots === 0;
   const hasSeat = detail.reservations.length > 0;
   const now = new Date();
-  const ended = detail.ends_at !== null && new Date(detail.ends_at) < now;
+  const ended = detail.ends_at != null && new Date(detail.ends_at) < now;
   // Review eligibility mirrors the backend gate: the
   // session has ended (`ends_at`, falling back to
   // `starts_at` when there is no explicit end) and
@@ -403,7 +398,7 @@ export function WorkshopDetailView({
   // The backend remains authoritative — the 409s are
   // handled with friendly inline copy.
   const sessionEnded = new Date(detail.ends_at ?? detail.starts_at) < now;
-  const hasReviewed = user !== null && detail.reviews.some((review) => review.user_id === user.id);
+  const hasReviewed = user !== null && (detail.reviews ?? []).some((review) => review.user_id === user.id);
   const canReview = sessionEnded && hasSeat && !hasReviewed;
   const registrationDeadline = detail.registration_closes_at ?? detail.starts_at;
   const registrationClosed = new Date(registrationDeadline) < now;
@@ -536,7 +531,7 @@ export function WorkshopDetailView({
                 Registration closes {formatDate(detail.registration_closes_at)}
               </span>
             )}
-            {detail.rating_average !== null && detail.rating_count > 0 && (
+            {detail.rating_average != null && detail.rating_count > 0 && (
               <span
                 id="workshop-detail-rating"
                 className="rounded-full bg-sand px-3 py-1 text-sm font-semibold text-ink/75"
@@ -773,7 +768,7 @@ export function WorkshopDetailView({
                 What attendees say
               </h2>
             </div>
-            {detail.rating_average !== null && (
+            {detail.rating_average != null && (
               <span id="workshop-detail-rating-aggregate" className="text-sm text-ink/70">
                 {detail.rating_average.toFixed(1)} · {detail.rating_count}{" "}
                 {detail.rating_count === 1 ? "review" : "reviews"}
@@ -843,13 +838,13 @@ export function WorkshopDetailView({
               You&apos;ve reviewed this session.
             </p>
           )}
-          {detail.reviews.length === 0 ? (
+          {(detail.reviews ?? []).length === 0 ? (
             <p id="review-empty" className="mt-6 text-sm text-ink/70">
               No reviews yet.
             </p>
           ) : (
             <ul id="workshop-detail-reviews-list" className="mt-6 space-y-3">
-              {detail.reviews.map((review) => (
+              {(detail.reviews ?? []).map((review) => (
                 <li
                   key={review.id}
                   id={`workshop-detail-review-${review.id}`}

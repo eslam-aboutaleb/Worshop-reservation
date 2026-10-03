@@ -20,8 +20,9 @@
  */
 import { QRCodeSVG } from "qrcode.react";
 
+import { useToastError } from "@ws/ui";
+
 import { useMyReservations } from "../features/reservations/hooks/useMyReservations";
-import { useToastError } from "./Toast";
 import { formatDate } from "../utils/formatters";
 
 interface Props {
@@ -144,10 +145,10 @@ export function TicketsView({ onBack }: Props) {
                 </div>
                 <div className="mt-5 flex items-center gap-5 border-t border-line pt-5">
                   <QRCodeSVG
-                    value={reservation.booking_code}
+                    value={reservation.booking_code ?? ""}
                     size={140}
                     level="M"
-                    title={`QR code for booking ${reservation.booking_code}`}
+                    title={`QR code for booking ${reservation.booking_code ?? ""}`}
                   />
                   <div className="min-w-0">
                     <p className="text-xs font-bold uppercase tracking-wider text-ink/60">
@@ -157,7 +158,7 @@ export function TicketsView({ onBack }: Props) {
                       id={`ticket-code-${reservation.id}`}
                       className="display-font mt-1 text-2xl font-bold tracking-[.15em]"
                     >
-                      {reservation.booking_code}
+                      {reservation.booking_code ?? ""}
                     </p>
                     <p className="mt-1 truncate text-sm font-semibold text-ink/75">
                       {reservation.attendee_name}

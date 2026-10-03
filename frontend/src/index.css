@@ -22,6 +22,14 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap");
 @import "tailwindcss";
 
+/*
+ * Scan the shared UI package so the Tailwind utility
+ * classes inside @ws/ui (Toast, ConfirmDialog,
+ * ErrorBoundary) are generated. Path is relative to
+ * this stylesheet.
+ */
+@source "../packages/ui/src";
+
 @theme {
   /* Brand surfaces */
   --color-ink: #192d3a; /* deep navy, used for premium dark surfaces */

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { listWorkshops } from "../../../api";
-import type { Workshop } from "../../../types";
+import type { Workshop } from "@ws/types";
+
+import { getApiClient } from "../../../apiClient";
 
 /** Page size requested from the discovery endpoint. */
 const PAGE_SIZE = 20;
@@ -63,7 +64,7 @@ export function useWorkshopList(refreshKey: number, filters: WorkshopListFilters
 
   const fetchPage = useCallback(
     (offset: number) =>
-      listWorkshops({
+      getApiClient().workshops.listWorkshops({
         q: debouncedQ || undefined,
         category: filters.category || undefined,
         state: filters.state ?? "upcoming",

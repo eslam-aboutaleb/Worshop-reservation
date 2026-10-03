@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { cancelReservation, listMyReservations } from "../../../api";
-import type { MyReservation } from "../../../types";
+import type { MyReservation } from "@ws/types";
+
+import { getApiClient } from "../../../apiClient";
 
 export function useMyReservations() {
   const [reservations, setReservations] = useState<MyReservation[]>([]);
@@ -9,7 +10,8 @@ export function useMyReservations() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    listMyReservations()
+    getApiClient()
+      .reservations.listMyReservations()
       .then(setReservations)
       .catch(setError)
       .finally(() => setLoading(false));
@@ -17,7 +19,7 @@ export function useMyReservations() {
 
   const cancel = useCallback(async (reservationId: string) => {
     try {
-      await cancelReservation(reservationId);
+      await getApiClient().reservations.cancelReservation(reservationId);
       setReservations((items) =>
         items.map((item) =>
           item.id === reservationId

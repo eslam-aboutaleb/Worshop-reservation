@@ -25,9 +25,11 @@
  */
 import { useRef, useState } from "react";
 
-import { ApiError, createReservation } from "../api";
+import { ApiError } from "@ws/api-client";
+import type { Reservation } from "@ws/types";
+
+import { getApiClient } from "../apiClient";
 import { useAuth } from "../features/auth/AuthContext";
-import type { Reservation } from "../types";
 
 /**
  * Map a failed reservation request to user-facing copy.
@@ -79,7 +81,7 @@ export function ReserveForm({ workshopId, onReserved, onOpenAuth }: Props) {
     setSubmitting(true);
     setFormError(null);
     try {
-      const reservation = await createReservation(
+      const reservation = await getApiClient().reservations.createReservation(
         workshopId,
         user.full_name,
         user.email,

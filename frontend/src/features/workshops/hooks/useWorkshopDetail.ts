@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { ApiError, cancelReservation, getWorkshop } from "../../../api";
-import type { SSEEvent, WorkshopDetail } from "../../../types";
+import { ApiError } from "@ws/api-client";
+import type { SSEEvent, WorkshopDetail } from "@ws/types";
+
+import { getApiClient } from "../../../apiClient";
 
 export function useWorkshopDetail(
   workshopId: string,
@@ -16,7 +18,7 @@ export function useWorkshopDetail(
 
   const refresh = useCallback(async () => {
     try {
-      const fresh = await getWorkshop(workshopId);
+      const fresh = await getApiClient().workshops.getWorkshop(workshopId);
       setDetail(fresh);
       onSpotsChanged(workshopId, fresh.available_spots);
     } catch (requestError) {
@@ -51,7 +53,7 @@ export function useWorkshopDetail(
     async (reservationId: string) => {
       setBusyReservationId(reservationId);
       try {
-        await cancelReservation(reservationId);
+        await getApiClient().reservations.cancelReservation(reservationId);
         await refresh();
       } catch (requestError) {
         setError(requestError);

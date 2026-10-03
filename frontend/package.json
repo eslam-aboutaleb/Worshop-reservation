@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build --workspace @ws/types && npm run build --workspace @ws/api-client && npm run build --workspace @ws/realtime && npm run build --workspace @ws/ui && tsc -b && vite build",
     "preview": "vite preview",
     "format": "prettier --write src/"
   },
