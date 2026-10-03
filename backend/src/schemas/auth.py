@@ -65,12 +65,17 @@ class UserResponse(BaseModel):
         full_name: Display name.
         email: Account email (already lowercased at write time).
         created_at: Account creation timestamp.
+        role: Platform role - ``attendee``, ``organizer``, or
+            ``admin`` (roadmap 2.1).
+        is_admin: ``True`` only for the environment-configured
+            super-admin account.
     """
 
     id: uuid.UUID
     full_name: str
     email: EmailStr
     created_at: datetime
+    role: str = "attendee"
     is_admin: bool = False
 
     model_config = {"from_attributes": True}

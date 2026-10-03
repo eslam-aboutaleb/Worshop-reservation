@@ -31,16 +31,27 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routers import router as api_router
+from src.configuration.database import async_session_factory
 from src.configuration.logging import configure_logging
 from src.configuration.settings import get_settings
 from src.exceptions import (
     AlreadyReservedError,
+    CannotFollowOwnOrganizationError,
+    EmailAlreadyExistsError,
+    InvalidCredentialsError,
+    OrganizationNotFoundError,
+    RateLimitedError,
+    RegistrationClosedError,
     ReservationNotFoundError,
+    ReviewAlreadyExistsError,
+    ReviewNotEligibleError,
+    WaitlistEntryNotFoundError,
     WorkshopFullError,
     WorkshopHasActiveReservationsError,
     WorkshopNotFoundError,
     domain_error_handler,
 )
+from src.models.idempotency_key import IdempotencyKey
 
 settings = get_settings()
 
@@ -109,8 +120,44 @@ def create_app() -> FastAPI:
     app.add_exception_handler(WorkshopFullError, domain_error_handler)
     app.add_exception_handler(AlreadyReservedError, domain_error_handler)
     app.add_exception_handler(WorkshopHasActiveReservationsError, domain_error_handler)
+    app.add_exception_handler(RegistrationClosedError, domain_error_handler)
+    app.add_exception_handler(RateLimitedError, domain_error_handler)
+    app.add_exception_handler(WaitlistEntryNotFoundError, domain_error_handler)
+    app.add_exception_handler(EmailAlreadyExistsError, domain_error_handler)
+    app.add_exception_handler(InvalidCredentialsError, domain_error_handler)
+    app.add_exception_handler(OrganizationNotFoundError, domain_error_handler)
+    app.add_exception_handler(CannotFollowOwnOrganizationError, domain_error_handler)
+    app.add_exception_handler(ReviewNotEligibleError, domain_error_handler)
+    app.add_exception_handler(ReviewAlreadyExistsError, domain_error_handler)
 
     app.include_router(api_router, prefix="/api")
+
+    @app.on_event("startup")
+    async def sweep_expired_idempotency_keys() -> None:
+        """Delete expired idempotency-key rows once at boot.
+
+        The ``idempotency_keys`` table grows by one row per
+        successful reservation. Without a sweep it is unbounded
+        (plan 0.4). Replay already filters on ``expires_at``,
+        so expired rows are dead weight; this keeps the table
+        bounded. Runs after Alembic (the Dockerfile applies
+        migrations before uvicorn starts) and is best-effort: a
+        failure here must never block startup.
+        """
+        from datetime import UTC, datetime
+
+        from sqlalchemy import delete as sa_delete
+
+        try:
+            async with async_session_factory() as session:
+                await session.execute(
+                    sa_delete(IdempotencyKey).where(
+                        IdempotencyKey.expires_at < datetime.now(UTC)
+                    )
+                )
+                await session.commit()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("idempotency_sweep_failed")
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

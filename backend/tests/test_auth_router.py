@@ -51,7 +51,8 @@ async def test_signup_duplicate_email_returns_409(client: AsyncClient) -> None:
     await _signup(client, email=email)
     second = await client.post("/api/auth/signup", json=_signup_body(email=email))
     assert second.status_code == 409
-    assert "already exists" in second.json()["detail"].lower()
+    assert second.json()["error"]["code"] == "email_already_exists"
+    assert "already exists" in second.json()["error"]["message"].lower()
 
 
 @pytest.mark.asyncio
@@ -242,6 +243,34 @@ async def test_two_signups_with_distinct_emails_succeed(client: AsyncClient) -> 
     b = f"b_{uuid.uuid4()}@example.com"
     assert (await client.post("/api/auth/signup", json=_signup_body(email=a))).status_code == 201
     assert (await client.post("/api/auth/signup", json=_signup_body(email=b))).status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_six_rapid_login_attempts_trigger_429_lockout(
+    client: AsyncClient,
+) -> None:
+    """The (IP, email) budget locks out after the configured attempts.
+
+    Five failed attempts are allowed (``auth_max_attempts``);
+    the sixth must be refused with 429 and the
+    ``rate_limited`` error code before any password
+    verification runs. A unique email keeps the autouse
+    limiter reset the only thing that could clear the
+    budget mid-test.
+    """
+    email = f"lockout_{uuid.uuid4()}@example.com"
+    for _ in range(5):
+        failed = await client.post(
+            "/api/auth/login",
+            json={"email": email, "password": "WrongPassword!"},
+        )
+        assert failed.status_code == 401
+    locked = await client.post(
+        "/api/auth/login",
+        json={"email": email, "password": "WrongPassword!"},
+    )
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "rate_limited"
 
 
 @pytest.mark.asyncio

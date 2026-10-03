@@ -78,6 +78,11 @@ class Reservation(Base):
     )
     attendee_name: Mapped[str] = mapped_column(String(200), nullable=False)
     attendee_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    booking_code: Mapped[str] = mapped_column(
+        String(12),
+        nullable=False,
+        default="",
+    )
     status: Mapped[str] = mapped_column(
         String(20),
         nullable=False,

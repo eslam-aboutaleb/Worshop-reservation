@@ -19,11 +19,19 @@ Conventions
 
 from fastapi import APIRouter
 
-from src.api.routers import reservations, users, workshops
+from src.api.routers import (
+    organizations,
+    organizer,
+    reservations,
+    users,
+    workshops,
+)
 
 router = APIRouter()
 router.include_router(users.router)
 router.include_router(workshops.router)
 router.include_router(reservations.router)
+router.include_router(organizations.router)
+router.include_router(organizer.router)
 
 __all__ = ["router"]

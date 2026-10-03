@@ -44,6 +44,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from src.models.base import Base
 
+# How long an idempotency key stays replayable. A week
+# comfortably covers a legitimate retry storm while keeping
+# the table bounded (the startup sweep deletes expired rows).
+IDEMPOTENCY_TTL_DAYS = 7
+
 
 class IdempotencyKey(Base):
     """A client-supplied idempotency key scoped to a workshop and account.
@@ -65,6 +70,9 @@ class IdempotencyKey(Base):
         created_at: Server timestamp at insert time. Not currently
             surfaced in any endpoint; reserved for future "show the
             caller's recent requests" features.
+        expires_at: When this key stops being replayable. Set to
+            ``now() + IDEMPOTENCY_TTL_DAYS`` at insert; the replay
+            query filters on it and the startup sweep deletes it.
     """
 
     __tablename__ = "idempotency_keys"
@@ -86,6 +94,11 @@ class IdempotencyKey(Base):
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),

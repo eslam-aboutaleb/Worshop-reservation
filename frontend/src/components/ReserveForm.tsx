@@ -11,30 +11,61 @@
  * turn a real retry into a fresh request. The key is only rotated
  * after a successful 201.
  *
- * On a successful reservation the form surfaces a success toast
- * and the parent re-fetches the detail. The "Booked" status and
- * the user's reservation row under "The room" are the persistent
- * confirmation; an in-form banner is intentionally avoided so
- * the success state never goes stale after a later cancel.
+ * On a successful reservation the created {@link Reservation} —
+ * including its server-generated booking code — is handed to the
+ * parent via `onReserved`, which re-fetches the detail and renders
+ * the confirmation panel (booking code + QR). The parent owns that
+ * panel so it stays visible even when the spot count flips to zero
+ * and the reserve card would otherwise be replaced.
+ *
+ * Domain failures are normalized into `ApiError`; the inline
+ * banner branches on the stable machine `code` (never the
+ * message) so the wording stays in sync with the backend
+ * contract.
  */
 import { useRef, useState } from "react";
 
-import { createReservation } from "../api";
+import { ApiError, createReservation } from "../api";
 import { useAuth } from "../features/auth/AuthContext";
-import { useToast } from "./Toast";
+import type { Reservation } from "../types";
+
+/**
+ * Map a failed reservation request to user-facing copy.
+ *
+ * @param error - The caught failure.
+ * @returns A human-readable message for the inline banner.
+ */
+function getFormErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "registration_closed") {
+      return "Registration for this session has closed.";
+    }
+    if (error.code === "already_reserved") {
+      return "You already have a seat in this session.";
+    }
+    if (error.code === "workshop_full") {
+      return "This session just filled up. Please pick another.";
+    }
+    return error.message;
+  }
+  return error instanceof Error ? error.message : "Failed to reserve a seat";
+}
 
 interface Props {
   /** Workshop to reserve against. */
   workshopId: string;
-  /** Called after a successful 201 so the parent can refresh. */
-  onReserved: () => void;
+  /**
+   * Called with the created reservation after a successful
+   * 201 so the parent can refresh and show the confirmation
+   * panel.
+   */
+  onReserved: (reservation: Reservation) => void;
   /** Called when the anonymous visitor chooses to sign in. */
   onOpenAuth: () => void;
 }
 
 export function ReserveForm({ workshopId, onReserved, onOpenAuth }: Props) {
   const { user } = useAuth();
-  const { showToast } = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const idempotencyKey = useRef(crypto.randomUUID());
@@ -48,14 +79,18 @@ export function ReserveForm({ workshopId, onReserved, onOpenAuth }: Props) {
     setSubmitting(true);
     setFormError(null);
     try {
-      await createReservation(workshopId, user.full_name, user.email, idempotencyKey.current);
+      const reservation = await createReservation(
+        workshopId,
+        user.full_name,
+        user.email,
+        idempotencyKey.current,
+      );
       // Rotate the key on success so the next explicit submit starts
       // a new logical request.
       idempotencyKey.current = crypto.randomUUID();
-      onReserved();
-      showToast("Your seat is reserved. We'll see you there!", "success");
+      onReserved(reservation);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "Failed to reserve a seat");
+      setFormError(getFormErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

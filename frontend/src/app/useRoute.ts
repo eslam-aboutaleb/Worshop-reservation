@@ -3,6 +3,9 @@ import { useCallback, useEffect, useState } from "react";
 export type AppRoute =
   | { name: "home"; authRequested: boolean }
   | { name: "account" }
+  | { name: "tickets" }
+  | { name: "admin" }
+  | { name: "organizer" }
   | { name: "workshop"; workshopId: string }
   | { name: "notFound" };
 
@@ -15,6 +18,15 @@ function readRoute(): AppRoute {
   }
   if (pathname === "/account" || pathname === "/account/") {
     return { name: "account" };
+  }
+  if (pathname === "/tickets" || pathname === "/tickets/") {
+    return { name: "tickets" };
+  }
+  if (pathname === "/admin" || pathname === "/admin/") {
+    return { name: "admin" };
+  }
+  if (pathname === "/organizer" || pathname === "/organizer/") {
+    return { name: "organizer" };
   }
   if (pathname === "/" || pathname === "") {
     return {

@@ -13,16 +13,31 @@ parameters, salt, and digest so the format remains self-describing.
 
 The plaintext password is never written to a log and never appears in
 a response schema. ``UserResponse`` exposes only the public fields.
+
+Platform roles
+----------------
+
+``role`` is the platform-wide role introduced by the organizations
+plan (roadmap 2.1): ``attendee`` (the default), ``organizer`` (may
+manage workshops), or ``admin``. It is distinct from the
+environment-configured super-admin flag checked by ``auth.is_admin``:
+``is_admin`` remains the super-admin signal, while ``role`` gates
+organizer-platform access. Organization creators are promoted to
+``organizer`` when they create their first organization.
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import CheckConstraint, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from src.models.base import Base
+
+USER_ROLE_ATTENDEE = "attendee"
+USER_ROLE_ORGANIZER = "organizer"
+USER_ROLE_ADMIN = "admin"
 
 
 class User(Base):
@@ -35,10 +50,16 @@ class User(Base):
             is enforced by the database so a duplicate signup returns
             a 409 (the ``users_email_key`` index).
         password_hash: Salted Argon2id PHC string (see module docstring).
+        role: Platform role - ``attendee``, ``organizer``, or
+            ``admin``. Defaults to ``attendee``; creating an
+            organization promotes the creator to ``organizer``.
         created_at: Server timestamp at insert time.
         reservations: All reservations owned by this account, loaded
             by the SQLAlchemy relationship only when explicitly
             accessed.
+        memberships: This account's organization memberships.
+        follows: The organizations this account follows.
+        reviews: The reviews this account has written.
     """
 
     __tablename__ = "users"
@@ -47,8 +68,26 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
+    role: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default=USER_ROLE_ATTENDEE,
+    )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
     reservations = relationship("Reservation", back_populates="user")
+    waitlist_entries = relationship("WaitlistEntry", back_populates="user")
+    memberships = relationship("OrganizationMembership", back_populates="user")
+    follows = relationship("OrganizationFollow", back_populates="user")
+    reviews = relationship("Review", back_populates="user")
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('attendee', 'organizer', 'admin')",
+            name="ck_users_role",
+        ),
+    )

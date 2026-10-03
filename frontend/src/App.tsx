@@ -2,8 +2,8 @@
  * Root application component.
  *
  * Top-level state holds only live availability. Browser URLs select
- * the list, workshop detail, and account views; an unknown path
- * falls through to a 404 view.
+ * the list, workshop detail, account, tickets, and admin views; an
+ * unknown path falls through to a 404 view.
  *
  * Real-time updates from the SSE stream land in `spotOverrides`, a
  * `workshop_id -> available_spots` map that overlays the values
@@ -13,16 +13,21 @@
  * itself on a relevant update.
  *
  * Authentication is owned by `AuthProvider`; this component only
- * checks the resolved user when protecting the account route. While
+ * checks the resolved user when protecting the signed-in routes. While
  * the auth context is still rehydrating (`isRestoring`) the whole
  * shell renders a skeleton so the list view never flashes its
- * "Sign in" button for a user who is actually signed in.
+ * "Sign in" button for a user who is actually signed in. The admin
+ * route is additionally restricted to `user.is_admin`; everyone
+ * else is redirected home.
  */
 import { useCallback, useEffect, useState } from "react";
 
 import { useRoute } from "./app/useRoute";
 import { AccountView } from "./components/AccountView";
+import { AdminView } from "./components/AdminView";
 import { NotFoundView } from "./components/NotFoundView";
+import { OrganizerView } from "./components/OrganizerView";
+import { TicketsView } from "./components/TicketsView";
 import { WorkshopDetailView } from "./components/WorkshopDetailView";
 import { WorkshopListView } from "./components/WorkshopListView";
 import { useAuth } from "./features/auth/AuthContext";
@@ -32,6 +37,9 @@ import type { SSEEvent } from "./types";
 const PAGE_TITLES: Record<string, string> = {
   home: "Workshop Reservations",
   account: "Your account - Workshop Reservations",
+  tickets: "My tickets - Workshop Reservations",
+  admin: "Admin - Workshop Reservations",
+  organizer: "Organizer dashboard - Workshop Reservations",
   workshop: "Workshop details - Workshop Reservations",
 };
 
@@ -60,9 +68,22 @@ export function App() {
   }, []);
   const navigateHome = useCallback(() => navigate("/"), [navigate]);
 
+  // Route guards. Signed-in routes send anonymous visitors
+  // back to the list with the auth modal opened; the admin
+  // surface additionally requires the super-admin, so a
+  // signed-in non-admin is redirected home.
   useEffect(() => {
-    if (!isRestoring && route.name === "account" && !user) {
-      navigate("/?auth=sign-in");
+    if (isRestoring) return;
+    if (route.name === "account" || route.name === "tickets") {
+      if (!user) navigate("/?auth=sign-in");
+      return;
+    }
+    if (route.name === "admin") {
+      if (!user) {
+        navigate("/?auth=sign-in");
+      } else if (!user.is_admin) {
+        navigate("/");
+      }
     }
   }, [isRestoring, navigate, route.name, user]);
 
@@ -101,6 +122,16 @@ export function App() {
     return <AccountView onClose={navigateHome} />;
   }
 
+  if (route.name === "tickets") {
+    if (!user) return null;
+    return <TicketsView onBack={navigateHome} />;
+  }
+
+  if (route.name === "admin") {
+    if (!user?.is_admin) return null;
+    return <AdminView onClose={navigateHome} />;
+  }
+
   if (route.name === "workshop") {
     return (
       <WorkshopDetailView
@@ -120,6 +151,8 @@ export function App() {
         spotOverrides={spotOverrides}
         onSelect={(id) => navigate(`/workshops/${encodeURIComponent(id)}`)}
         onOpenAccount={() => navigate("/account")}
+        onOpenTickets={() => navigate("/tickets")}
+        onOpenAdmin={() => navigate("/admin")}
         authRequested={route.authRequested}
         refreshKey={catalogRevision}
       />

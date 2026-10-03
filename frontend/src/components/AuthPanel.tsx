@@ -12,11 +12,25 @@
  * The internal signin/signup mode is always local so toggling does
  * not round-trip through the parent. On a successful login the
  * panel closes itself and calls `onSignedIn` if provided.
+ *
+ * Rate limiting (plan 0.3): when the backend answers with
+ * `rate_limited` (HTTP 429), the form is disabled for the
+ * lockout window so the user cannot keep hammering the
+ * endpoint. The lockout outlives the modal because the
+ * server-side window is tied to the caller, not the page.
  */
 import { useEffect, useState } from "react";
 
-import { login, signup } from "../api";
+import { ApiError, login, signup } from "../api";
 import { useAuth } from "../features/auth/AuthContext";
+
+/**
+ * Lockout window applied when the backend rate-limits an
+ * auth attempt. The error envelope carries no retry-after
+ * value, so the client assumes the backend's configured
+ * default (`auth_lockout_seconds`, 900 s).
+ */
+const AUTH_LOCKOUT_SECONDS = 900;
 
 interface Props {
   /** Controlled open state. When false the modal is unmounted. */
@@ -57,6 +71,29 @@ export function AuthPanel({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Lockout state: `lockedUntil` is the epoch-millisecond
+  // timestamp when the rate-limit window clears, and `now`
+  // ticks once a second while a lockout is active so the
+  // countdown and the disabled state clear on time.
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  const locked = lockedUntil !== null && now < lockedUntil;
+  const lockoutRemainingSeconds = lockedUntil
+    ? Math.max(0, Math.ceil((lockedUntil - now) / 1000))
+    : 0;
+
+  useEffect(() => {
+    if (lockedUntil === null) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [lockedUntil]);
+
+  useEffect(() => {
+    if (lockedUntil !== null && now >= lockedUntil) {
+      setLockedUntil(null);
+    }
+  }, [now, lockedUntil]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +106,7 @@ export function AuthPanel({
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked) return;
     setBusy(true);
     setFormError(null);
     try {
@@ -81,6 +119,9 @@ export function AuthPanel({
       setOpen(false);
       onSignedIn?.();
     } catch (error) {
+      if (error instanceof ApiError && error.code === "rate_limited") {
+        setLockedUntil(Date.now() + AUTH_LOCKOUT_SECONDS * 1000);
+      }
       setFormError(error instanceof Error ? error.message : "Authentication failed");
     } finally {
       setBusy(false);
@@ -170,7 +211,8 @@ export function AuthPanel({
                 autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal"
+                disabled={locked}
+                className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal disabled:opacity-60"
                 placeholder="Jane Doe"
               />
             </div>
@@ -186,7 +228,8 @@ export function AuthPanel({
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal"
+              disabled={locked}
+              className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal disabled:opacity-60"
               placeholder="jane@example.com"
             />
           </div>
@@ -202,7 +245,8 @@ export function AuthPanel({
               autoComplete={mode === "signup" ? "new-password" : "current-password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal"
+              disabled={locked}
+              className="rounded-xl border border-line bg-transparent px-4 py-3 outline-none placeholder:text-ink/65 focus:border-teal disabled:opacity-60"
               placeholder="At least 8 characters"
             />
           </div>
@@ -219,10 +263,16 @@ export function AuthPanel({
         <button
           id="auth-submit-button"
           type="submit"
-          disabled={busy}
+          disabled={busy || locked}
           className="mt-6 w-full rounded-full bg-teal py-4 font-bold text-white hover:bg-ink disabled:opacity-60"
         >
-          {busy ? "Please wait..." : mode === "signup" ? "Create account" : "Sign in"}
+          {locked
+            ? `Try again in ${lockoutRemainingSeconds}s`
+            : busy
+              ? "Please wait..."
+              : mode === "signup"
+                ? "Create account"
+                : "Sign in"}
         </button>
         <div className="mt-6 flex justify-center">
           <button
@@ -232,7 +282,8 @@ export function AuthPanel({
               setMode(mode === "signup" ? "signin" : "signup");
               setFormError(null);
             }}
-            className="text-sm font-semibold text-ink/70 underline hover:text-ink"
+            disabled={locked}
+            className="text-sm font-semibold text-ink/70 underline hover:text-ink disabled:opacity-60"
           >
             {mode === "signup" ? "Already have an account? Sign in" : "Need an account? Sign up"}
           </button>

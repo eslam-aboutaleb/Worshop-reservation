@@ -33,6 +33,13 @@ export function useWorkshopDetail(
   }, [refresh, userId]);
 
   useEffect(() => {
+    // Every event for this workshop re-fetches the detail:
+    // reservation events keep the embedded reservation list
+    // current, and the waitlist events (`waitlist_joined`,
+    // `waitlist_left`, `waitlist_promoted`, `waitlist_cancelled`)
+    // keep the caller's queue position and the spot count in
+    // sync. The event payloads carry counts only, so the
+    // re-fetch is what surfaces the new position.
     if (liveEvent?.workshop_id === workshopId) void refresh();
     // `refresh` is memoized on [workshopId, onDeleted, onSpotsChanged], so
     // a liveEvent for a different workshop still re-runs this effect but

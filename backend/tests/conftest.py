@@ -68,6 +68,22 @@ def _isolate_sse_state() -> None:
     _global_subscribers.clear()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_rate_limiter() -> None:
+    """Reset the process-wide auth rate limiter between tests.
+
+    ``get_rate_limiter()`` is a lazy singleton whose failure
+    budget would otherwise leak from one test into the next: a
+    test that makes several failed login attempts could lock
+    out an unrelated test that happens to reuse the same
+    ``(client IP, email)`` key. Resetting before each test
+    makes every case start with a clean budget.
+    """
+    from src.rate_limiting import reset_rate_limiter
+
+    reset_rate_limiter()
+
+
 @pytest_asyncio.fixture
 async def workshop() -> AsyncGenerator[Workshop, None]:
     """Insert a fresh workshop for the test and clean it up afterwards.

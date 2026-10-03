@@ -8,6 +8,11 @@ from httpx import AsyncClient
 ADMIN_EMAIL = "eslamehababoutaleb@gmail.com"
 PASSWORD = "Password123!"
 
+# Ids created by the running test, removed again by the
+# autouse ``cleanup_workshops`` fixture so the shared
+# database is not polluted across runs.
+_CREATED_WORKSHOPS: list[str] = []
+
 
 async def _signup(client: AsyncClient, email: str) -> str:
     response = await client.post(
@@ -43,7 +48,7 @@ async def test_configured_admin_can_create_and_cancel_unbooked_workshop(
     assert workshop["available_spots"] == 4
 
     catalogue = await client.get("/api/workshops")
-    assert any(item["id"] == workshop["id"] for item in catalogue.json())
+    assert any(item["id"] == workshop["id"] for item in catalogue.json()["items"])
 
     delete = await client.delete(f"/api/workshops/{workshop['id']}", headers=_auth(token))
     assert delete.status_code == 204
@@ -127,6 +132,102 @@ async def test_booked_workshop_cannot_be_cancelled(client: AsyncClient) -> None:
     assert (
         await client.delete(f"/api/workshops/{workshop_id}", headers=_auth(admin_token))
     ).status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_admin_list_includes_cancelled_sessions(
+    client: AsyncClient,
+) -> None:
+    """The admin catalogue shows cancelled sessions; the public one does not."""
+    admin_token = await _signup(client, ADMIN_EMAIL)
+    created = await client.post(
+        "/api/workshops",
+        json={
+            "title": "Cancelled admin session",
+            "starts_at": "2030-03-15T12:30:00+00:00",
+            "max_capacity": 4,
+        },
+        headers=_auth(admin_token),
+    )
+    assert created.status_code == 201, created.text
+    workshop_id = created.json()["id"]
+    _CREATED_WORKSHOPS.append(workshop_id)
+
+    cancel = await client.post(
+        f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token)
+    )
+    assert cancel.status_code == 200, cancel.text
+
+    admin_catalogue = await client.get(
+        "/api/workshops", params={"state": "all"}, headers=_auth(admin_token)
+    )
+    assert admin_catalogue.status_code == 200
+    assert any(item["id"] == workshop_id for item in admin_catalogue.json()["items"])
+
+    # The client keeps the admin's session cookie from the
+    # signup above; clear it so this request is truly
+    # anonymous (see ``api_signup`` in conftest).
+    client.cookies.clear()
+    public_catalogue = await client.get("/api/workshops", params={"state": "all"})
+    assert public_catalogue.status_code == 200
+    assert not any(
+        item["id"] == workshop_id for item in public_catalogue.json()["items"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_admin_can_read_cancelled_workshop_detail(
+    client: AsyncClient,
+) -> None:
+    """Cancelled sessions stay readable by the admin, 404 for everyone else."""
+    admin_token = await _signup(client, ADMIN_EMAIL)
+    created = await client.post(
+        "/api/workshops",
+        json={
+            "title": "Hidden cancelled session",
+            "starts_at": "2030-04-15T12:30:00+00:00",
+            "max_capacity": 4,
+        },
+        headers=_auth(admin_token),
+    )
+    assert created.status_code == 201, created.text
+    workshop_id = created.json()["id"]
+    _CREATED_WORKSHOPS.append(workshop_id)
+
+    cancel = await client.post(
+        f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token)
+    )
+    assert cancel.status_code == 200, cancel.text
+
+    admin_detail = await client.get(
+        f"/api/workshops/{workshop_id}", headers=_auth(admin_token)
+    )
+    assert admin_detail.status_code == 200, admin_detail.text
+    assert admin_detail.json()["status"] == "cancelled"
+
+    member_token = await _signup(client, f"member_{uuid.uuid4()}@example.com")
+    member_detail = await client.get(
+        f"/api/workshops/{workshop_id}", headers=_auth(member_token)
+    )
+    assert member_detail.status_code == 404
+
+
+@pytest.fixture(autouse=True)
+async def cleanup_workshops():
+    """Remove workshops created by the running test."""
+    from sqlalchemy import text
+
+    from tests.conftest import _session_factory
+
+    yield
+    if _CREATED_WORKSHOPS:
+        async with _session_factory() as s:
+            for workshop_id in _CREATED_WORKSHOPS:
+                await s.execute(
+                    text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
+                )
+            await s.commit()
+        _CREATED_WORKSHOPS.clear()
 
 
 @pytest.fixture(autouse=True)

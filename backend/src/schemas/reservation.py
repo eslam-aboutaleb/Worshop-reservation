@@ -52,6 +52,9 @@ class ReservationResponse(BaseModel):
         workshop_id: Parent workshop UUID.
         attendee_name: Attendee's full name.
         attendee_email: Attendee's email (already lowercased).
+        booking_code: Server-generated confirmation code
+            (``WKS-`` + 6 chars). This is the check-in lookup
+            key and the value printed on the ticket.
         status: ``"active"`` or ``"cancelled"``.
         created_at: Insert timestamp.
         cancelled_at: Cancellation timestamp, or ``None`` while active.
@@ -61,6 +64,7 @@ class ReservationResponse(BaseModel):
     workshop_id: uuid.UUID
     attendee_name: str
     attendee_email: str
+    booking_code: str = ""
     status: str
     created_at: datetime
     cancelled_at: datetime | None = None

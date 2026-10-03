@@ -1,29 +1,51 @@
 """Account registration and authentication endpoints.
 
-All routes here are mounted at ``/auth`` by the router's prefix.
-The shape of each handler is the same: validate the body, look up
-or create the account, return an ``AuthResponse`` containing the
-new bearer token (also set as an httpOnly cookie for browsers).
+Routes:
 
-Security notes
---------------
+* ``POST /auth/signup``  - create a personal account.
+* ``POST /auth/login``   - issue a bearer token.
+* ``GET  /auth/me``      - current account.
+* ``POST /auth/logout``  - clear the cookie.
 
-* The bearer token is a self-issued JWT (see :mod:`src.auth`).
-* The token is delivered as the ``workshop_access_token`` cookie
-  with ``HttpOnly`` and ``SameSite=Lax``; the JSON response still
-  carries ``access_token`` so API clients and the test suite can
-  use ``Authorization: Bearer ...``.
-* ``signup`` is a transactional creation. The email is pre-checked
-  to give a clean 409 even though the unique index would also catch
-  the race; the pre-check produces a friendlier log entry.
-* ``login`` is intentionally permissive about which field is wrong;
-  the response message is the same in both cases so an attacker
-  cannot enumerate which emails are registered.
+The bearer token is delivered two ways: as an
+httpOnly ``Set-Cookie`` (so the browser SPA works
+without touching ``localStorage``) and in the JSON
+body (so API clients can choose their own storage).
+The frontend sends the token back as
+``Authorization: Bearer ...``; the cookie is a
+fallback. When both are present the header wins -
+this is what lets the test suite simulate two
+different users on one client.
+
+Rate limiting (plan 0.3)
+--------------------------
+
+``signup`` and ``login`` are protected by a fixed
+window keyed on ``(client IP, email)``. The budget
+is checked **before** credential verification so a
+locked-out caller never reaches the password check,
+a failure is recorded on every rejected attempt, and
+the budget is cleared on success so a legitimate
+user never accumulates a lockout. The counter lives
+behind the ``RateLimiter`` interface so Phase 3 can
+swap the in-process store for Redis.
+
+Password operations
+-------------------
+
+Argon2id hashing and verification run in a worker
+thread via ``run_in_threadpool`` so the (deliberately
+expensive) KDF never blocks the event loop. The
+unknown-email login path verifies against a dummy
+hash so both outcomes cost the same, which keeps the
+response time from leaking which emails are
+registered.
 """
 
+import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -40,10 +62,32 @@ from src.auth import (
     verify_password,
 )
 from src.configuration.database import get_db
+from src.exceptions import (
+    EmailAlreadyExistsError,
+    InvalidCredentialsError,
+    RateLimitedError,
+)
 from src.models.user import User
-from src.schemas.auth import AccountCreate, AuthResponse, LoginRequest, UserResponse
+from src.rate_limiting import auth_rate_limit_key, get_rate_limiter
+from src.schemas.auth import (
+    AccountCreate,
+    AuthResponse,
+    LoginRequest,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _client_ip(request: Request) -> str:
+    """Return the peer address, or a placeholder when absent.
+
+    The ASGI test transport does not always populate
+    ``request.client``; a missing peer falls back to a
+    stable placeholder so the rate-limit key is still
+    well-formed.
+    """
+    return request.client.host if request.client else "unknown"
 
 
 def _auth_response(user: User) -> AuthResponse:
@@ -56,8 +100,9 @@ def _auth_response(user: User) -> AuthResponse:
 
 @router.post("/signup", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 async def signup(
-    payload: AccountCreate,
+    request: Request,
     response: Response,
+    payload: AccountCreate,
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AuthResponse:
     """Create an account and return a freshly-issued bearer token.
@@ -67,21 +112,31 @@ async def signup(
     JS-side token handling.
 
     Args:
-        payload: Validated signup body (full name, email, password).
+        request: Inbound request (used for the rate-limit key).
         response: Active response, mutated to carry the session cookie.
+        payload: Validated signup body (full name, email, password).
         session: Active async database session.
 
     Returns:
         A bearer token and the public view of the new account.
 
     Raises:
-        HTTPException: 409 if the email is already registered.
+        RateLimitedError: 429 if the ``(IP, email)`` key has
+            exceeded its attempt budget.
+        EmailAlreadyExistsError: 409 if the email is already
+            registered.
     """
+    limiter = get_rate_limiter()
+    key = auth_rate_limit_key(_client_ip(request), payload.email)
+    if not await limiter.check(key):
+        raise RateLimitedError(_lockout_seconds())
+
     existing = (
         await session.execute(select(User).where(User.email == payload.email))
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=409, detail="An account with this email already exists")
+        await limiter.record_failure(key)
+        raise EmailAlreadyExistsError(payload.email)
 
     password_hash = await run_in_threadpool(hash_password, payload.password)
     user = User(
@@ -97,11 +152,10 @@ async def signup(
         # index on `users.email` caught the race. Roll back and
         # return the same 409 the pre-check would have.
         await session.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="An account with this email already exists",
-        ) from exc
+        await limiter.record_failure(key)
+        raise EmailAlreadyExistsError(payload.email) from exc
     await session.refresh(user)
+    await limiter.reset(key)
     auth_response = _auth_response(user)
     set_session_cookie(response, auth_response.access_token)
     return auth_response
@@ -109,8 +163,9 @@ async def signup(
 
 @router.post("/login", response_model=AuthResponse)
 async def login(
-    payload: LoginRequest,
+    request: Request,
     response: Response,
+    payload: LoginRequest,
     session: Annotated[AsyncSession, Depends(get_db)],
 ) -> AuthResponse:
     """Sign in with email and password.
@@ -119,44 +174,40 @@ async def login(
     response.
 
     Args:
-        payload: Validated login body (email, password).
+        request: Inbound request (used for the rate-limit key).
         response: Active response, mutated to carry the session cookie.
+        payload: Validated login body (email, password).
         session: Active async database session.
 
     Returns:
         A bearer token and the public view of the account.
 
     Raises:
-        HTTPException: 401 if the email is unknown or the password
-            does not match. The error message is intentionally the
-            same in both cases to avoid leaking which emails are
-            registered.
+        RateLimitedError: 429 if the ``(IP, email)`` key has
+            exceeded its attempt budget.
+        InvalidCredentialsError: 401 if the email is unknown or
+            the password does not match. The error message is
+            intentionally the same in both cases to avoid
+            leaking which emails are registered.
     """
+    limiter = get_rate_limiter()
+    key = auth_rate_limit_key(_client_ip(request), payload.email)
+    if not await limiter.check(key):
+        raise RateLimitedError(_lockout_seconds())
+
     user = (
         await session.execute(select(User).where(User.email == payload.email))
     ).scalar_one_or_none()
     stored_hash = user.password_hash if user is not None else DUMMY_PASSWORD_HASH
     password_matches = await run_in_threadpool(verify_password, payload.password, stored_hash)
     if user is None or not password_matches:
-        raise HTTPException(status_code=401, detail="Email or password is incorrect")
+        await limiter.record_failure(key)
+        raise InvalidCredentialsError()
+
+    await limiter.reset(key)
     auth_response = _auth_response(user)
     set_session_cookie(response, auth_response.access_token)
     return auth_response
-
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response) -> Response:
-    """Clear the session cookie. Idempotent - safe to call when signed out.
-
-    The handler mutates the FastAPI-injected ``response`` and
-    returns the same instance so the cookie header is preserved
-    on the wire. Returning a fresh ``Response(status_code=204)``
-    would discard the mutation and the cookie would not be
-    cleared in the browser.
-    """
-    clear_session_cookie(response)
-    response.status_code = status.HTTP_204_NO_CONTENT
-    return response
 
 
 @router.get("/me", response_model=UserResponse)
@@ -175,3 +226,31 @@ async def me(user: Annotated[User, Depends(get_current_user)]) -> UserResponse:
         The public view of the account.
     """
     return UserResponse.model_validate(user).model_copy(update={"is_admin": is_admin(user)})
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response) -> Response:
+    """Clear the session cookie. Idempotent - safe to call when signed out.
+
+    The bearer token is stateless, so logout only clears the
+    cookie; clients storing the token in ``localStorage`` must
+    discard it themselves. The handler mutates the
+    FastAPI-injected ``response`` and returns the same instance
+    so the cookie header is preserved on the wire.
+
+    Args:
+        response: Active response, mutated to clear the cookie.
+
+    Returns:
+        The same response with a 204 status.
+    """
+    clear_session_cookie(response)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+def _lockout_seconds() -> int:
+    """Return the configured lockout window for 429 responses."""
+    from src.configuration.settings import get_settings
+
+    return get_settings().auth_lockout_seconds

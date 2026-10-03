@@ -46,9 +46,16 @@ Helper dependencies
 
 ``get_current_user`` and ``get_optional_user`` are FastAPI
 dependencies. They intentionally use ``Depends(_bearer)`` and
-``Depends(get_db)`` directly in the parameter list. This is the
-canonical FastAPI idiom and ruff's B008 warning is suppressed at the
-rule level (see ``pyproject.toml``).
+``Depends(get_db)`` directly in the parameter list. This is
+the canonical FastAPI idiom and ruff's B008 warning is suppressed at
+the rule level (see ``pyproject.toml``).
+
+``get_current_admin`` gates the environment-configured
+super-admin. ``get_current_organizer`` is the organizer-platform
+counterpart (roadmap 2.1): it admits the super-admin, accounts
+with the ``organizer``/``admin`` platform role, and members of
+the organization that owns the target workshop, and is the
+dependency the workshop mutation routes use.
 """
 
 import base64
@@ -69,7 +76,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.configuration.database import get_db
 from src.configuration.settings import get_settings
-from src.models.user import User
+from src.exceptions import WorkshopNotFoundError
+from src.models.organization import OrganizationMembership
+from src.models.user import USER_ROLE_ADMIN, USER_ROLE_ORGANIZER, User
+from src.models.workshop import Workshop
 
 logger = structlog.get_logger(__name__)
 
@@ -364,6 +374,123 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     """Resolve the configured administrator or reject the request with 403."""
     if not is_admin(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
+    return user
+
+
+async def get_current_organizer(
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> User:
+    """Resolve the caller and yield them only when they may manage workshops.
+
+    This is the organizer-platform counterpart to
+    :func:`get_current_admin` (roadmap 2.1). A caller is an
+    organizer - and therefore allowed through to the workshop
+    mutation routes - when any of the following holds:
+
+    * they are the environment-configured super-admin
+      (``is_admin``), or
+    * their platform ``role`` is ``organizer`` or ``admin``, or
+    * they hold an ``owner``/``member`` membership in the
+      organization that owns the target workshop.
+
+    The target workshop is read from the ``workshop_id`` path
+    parameter, so the same dependency serves the
+    ``PUT /{workshop_id}``, ``POST /{workshop_id}/publish``,
+    ``POST /{workshop_id}/cancel`` and ``DELETE /{workshop_id}``
+    routes. The ``POST /workshops`` (create) route has no path
+    parameter; there any organization membership qualifies the
+    caller as an organizer, and the owning organization named in
+    the request body is verified by the service layer
+    (``workshop_service.create_workshop``).
+
+    Error philosophy: a caller who is not an organizer at all
+    (a plain attendee with no organization membership) is
+    rejected with 403, preserving the pre-organizer behavior of
+    the admin-gated routes. A caller who *is* an organizer but
+    may not see the target workshop - because it does not exist,
+    is not attached to an organization, or belongs to an
+    organization they do not belong to - gets a 404
+    (``WorkshopNotFoundError``) so the existence of foreign
+    workshops is not leaked.
+
+    Args:
+        request: The active request, used to read the
+            ``workshop_id`` path parameter.
+        user: The signed-in account, resolved by
+            :func:`get_current_user`.
+        session: Active async database session (the same
+            instance ``get_current_user`` used, since FastAPI
+            caches the ``get_db`` dependency per request).
+
+    Returns:
+        The resolved ``User`` row.
+
+    Raises:
+        HTTPException: 401 if the caller is not signed in
+            (raised by ``get_current_user``); 403 if the
+            caller is a plain attendee with no organization
+            membership, or the target workshop id is
+            malformed or unknown.
+        WorkshopNotFoundError: 404 if the target workshop
+            exists but the caller may not manage it.
+    """
+    if is_admin(user) or user.role in (USER_ROLE_ORGANIZER, USER_ROLE_ADMIN):
+        return user
+
+    workshop_id = request.path_params.get("workshop_id")
+    if workshop_id is None:
+        # Create route: any organization membership makes the
+        # caller an organizer; the specific organization named
+        # in the body is checked by the service layer.
+        membership = (
+            await session.execute(
+                select(OrganizationMembership).where(
+                    OrganizationMembership.user_id == user.id
+                )
+            )
+        ).scalar_one_or_none()
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Organizer access required",
+            )
+        return user
+
+    try:
+        target_id = uuid.UUID(str(workshop_id))
+    except (ValueError, TypeError):
+        # The route's own ``Path()`` validation would reject
+        # this with 422 once the dependency passes; a caller
+        # who is not an organizer never gets that far.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organizer access required",
+        )
+
+    workshop = (
+        await session.execute(select(Workshop).where(Workshop.id == target_id))
+    ).scalar_one_or_none()
+    if workshop is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organizer access required",
+        )
+    if workshop.organization_id is None:
+        # Platform-managed workshops are admin-only; report
+        # them as not found to non-admin organizers.
+        raise WorkshopNotFoundError(str(target_id))
+    membership = (
+        await session.execute(
+            select(OrganizationMembership).where(
+                OrganizationMembership.user_id == user.id,
+                OrganizationMembership.organization_id == workshop.organization_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if membership is None:
+        raise WorkshopNotFoundError(str(target_id))
     return user
 
 

@@ -104,3 +104,22 @@ input:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+@media print {
+  /*
+   * Print the tickets page cleanly: a plain white
+   * background, no toast or dialog overlays, and each
+   * ticket card kept intact on a single page.
+   */
+  body {
+    background: #fff;
+  }
+  #toast-region,
+  #confirm-dialog-backdrop {
+    display: none !important;
+  }
+  .ticket-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none;
+  }
+}

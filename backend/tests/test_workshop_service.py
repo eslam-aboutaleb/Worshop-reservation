@@ -45,7 +45,7 @@ async def test_list_workshops_empty_database(session: AsyncSession) -> None:
     only asserts the call returns a list (not an exception) and
     contains the rows that the test itself just created, if any.
     """
-    result = await workshop_service.list_workshops(session)
+    result = (await workshop_service.list_workshops(session)).items
     assert isinstance(result, list)
     assert all(w.available_spots >= 0 for w in result)
     assert all(w.max_capacity > 0 for w in result)
@@ -56,7 +56,7 @@ async def test_list_workshops_reports_capacity_minus_active(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """The fixture workshop is reported with the full capacity available."""
-    workshops = await workshop_service.list_workshops(session)
+    workshops = (await workshop_service.list_workshops(session)).items
     target = next(w for w in workshops if str(w.id) == workshop_id)
     assert target.max_capacity == 3
     assert target.available_spots == 3
@@ -67,7 +67,7 @@ async def test_list_workshops_decrements_after_reservation(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """Creating a reservation decrements the visible seat count for that workshop."""
-    before = await workshop_service.list_workshops(session)
+    before = (await workshop_service.list_workshops(session)).items
     starting_spots = next(w for w in before if str(w.id) == workshop_id).available_spots
 
     await reservation_service.create_reservation(
@@ -78,7 +78,7 @@ async def test_list_workshops_decrements_after_reservation(
         user=await _make_user(session, "decrement"),
     )
 
-    after = await workshop_service.list_workshops(session)
+    after = (await workshop_service.list_workshops(session)).items
     target = next(w for w in after if str(w.id) == workshop_id)
     assert target.available_spots == starting_spots - 1
 
@@ -99,7 +99,7 @@ async def test_list_workshops_clamps_available_to_zero_when_full(
             user=await _make_user(session, f"filler{i}"),
         )
 
-    workshops = await workshop_service.list_workshops(session)
+    workshops = (await workshop_service.list_workshops(session)).items
     target = next(w for w in workshops if str(w.id) == workshop_id)
     assert target.available_spots == 0
 
@@ -283,7 +283,9 @@ async def test_list_workshops_is_ordered_by_start_time(session: AsyncSession) ->
             )
         await session.commit()
 
-        result = await workshop_service.list_workshops(session)
+        result = (
+            await workshop_service.list_workshops(session, limit=1000)
+        ).items
         ours = [w for w in result if str(w.id) in {str(i) for i in new_ids}]
         assert [w.title for w in ours] == [
             f"order_early_{suffix}",

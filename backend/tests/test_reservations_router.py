@@ -158,14 +158,16 @@ async def test_signed_in_user_cannot_cancel_unowned_legacy_via_api(
         await session.execute(
             text(
                 "INSERT INTO reservations "
-                "(id, workshop_id, user_id, attendee_name, attendee_email, status) "
-                "VALUES (:id, :wid, NULL, :name, :email, 'active')"
+                "(id, workshop_id, user_id, attendee_name, attendee_email, "
+                "booking_code, status) "
+                "VALUES (:id, :wid, NULL, :name, :email, :code, 'active')"
             ),
             {
                 "id": legacy_id,
                 "wid": uuid.UUID(workshop_id),
                 "name": "Legacy",
                 "email": f"legacy_{uuid.uuid4().hex}@example.com",
+                "code": f"WKS-{uuid.uuid4().hex[:6].upper()}",
             },
         )
         await session.commit()
@@ -292,3 +294,48 @@ async def test_cancel_with_invalid_uuid_returns_401(client: AsyncClient) -> None
     """A non-UUID reservation id is rejected. Auth runs first, so 401 wins."""
     response = await client.delete("/api/reservations/not-a-uuid")
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_waitlist_me_requires_token(client: AsyncClient) -> None:
+    """GET /waitlist/me without a token is rejected with 401."""
+    response = await client.get("/api/waitlist/me")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_waitlist_me_empty_for_new_account(client: AsyncClient) -> None:
+    """A fresh account holds no places in line."""
+    token, _ = await _signup_and_token(client)
+    response = await client.get("/api/waitlist/me", headers=_auth(token))
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_waitlist_me_lists_active_entries_with_title(
+    client: AsyncClient, workshop_id: str
+) -> None:
+    """Joining a waitlist surfaces the entry with its workshop title."""
+    token, _ = await _signup_and_token(client)
+    join = await client.post(
+        f"/api/workshops/{workshop_id}/waitlist", headers=_auth(token)
+    )
+    assert join.status_code == 200
+    entry_id = join.json()["entry"]["id"]
+
+    me = await client.get("/api/waitlist/me", headers=_auth(token))
+    assert me.status_code == 200
+    rows = me.json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == entry_id
+    assert rows[0]["workshop_id"] == workshop_id
+    assert rows[0]["workshop_title"]
+    assert rows[0]["status"] == "active"
+    assert rows[0]["position"] == 1
+
+    # Leaving the waitlist removes the entry from the account view.
+    leave = await client.delete(f"/api/waitlist/{entry_id}", headers=_auth(token))
+    assert leave.status_code == 200
+    me = await client.get("/api/waitlist/me", headers=_auth(token))
+    assert me.json() == []

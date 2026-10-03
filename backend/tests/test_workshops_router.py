@@ -19,7 +19,7 @@ async def test_list_includes_new_workshop(client: AsyncClient, workshop_id: str)
     """The created workshop appears in the catalogue list."""
     response = await client.get("/api/workshops")
     assert response.status_code == 200
-    payload = response.json()
+    payload = response.json()["items"]
     ids = {item["id"] for item in payload}
     assert workshop_id in ids
     found = next(item for item in payload if item["id"] == workshop_id)
@@ -41,7 +41,7 @@ async def test_list_reflects_reservations(client: AsyncClient, workshop_id: str)
         assert create.status_code == 201
 
     response = await client.get("/api/workshops")
-    item = next(w for w in response.json() if w["id"] == workshop_id)
+    item = next(w for w in response.json()["items"] if w["id"] == workshop_id)
     assert item["available_spots"] == 1
 
 

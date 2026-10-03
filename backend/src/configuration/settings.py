@@ -30,6 +30,30 @@ class Settings(BaseSettings):
     server_host: str = "0.0.0.0"
     server_port: int = Field(default=8000, ge=1, le=65535)
     sse_heartbeat_seconds: float = Field(default=15.0, gt=0, le=300)
+    # Auth rate limiting (plan 0.3). A fixed window of
+    # ``auth_max_attempts`` failed login/signup attempts per
+    # (client IP, email) triggers a ``auth_lockout_seconds``
+    # lockout. The counter lives behind the ``RateLimiter``
+    # interface so Phase 3 can swap the in-process store for
+    # Redis without touching the routers.
+    auth_max_attempts: int = Field(default=5, ge=1, le=100)
+    auth_lockout_seconds: int = Field(default=900, ge=1, le=86400)
+    # Real-time infra (plan 3.1). Empty string means "no Redis
+    # configured"; the in-process SSE implementation is used
+    # until a URL is provided.
+    redis_url: str = ""
+    # Transactional email (plan 3.2). ``email_enabled`` gates
+    # every send so a deployment without SMTP credentials never
+    # blocks a booking flow.
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    email_enabled: bool = False
+    # Payments (plan 4.2). ``"none"`` is the no-op default; the
+    # provider factory keys off this value.
+    payment_provider: str = Field(default="none", pattern="^(none|stripe|fawry)$")
     # The bearer token is delivered as an httpOnly cookie. Set to
     # ``true`` in development over plain HTTP; the default ``false``
     # requires HTTPS in production.

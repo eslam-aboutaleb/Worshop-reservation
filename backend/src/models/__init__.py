@@ -18,6 +18,19 @@ Hierarchy
                        for safe replay of ``POST`` requests.
 ``User``            : personal account that owns reservations across
                        devices. Passwords are stored as Argon2id hashes.
+``WaitlistEntry``   : a place in line for a full workshop, promoted
+                       to a reservation inside the cancelling
+                       transaction.
+``Organization``    : an organizing account that owns workshops.
+``OrganizationMembership`` : a user's role (``owner``/``member``)
+                        within an ``Organization``; keyed on the
+                        ``(user_id, organization_id)`` pair.
+``OrganizationFollow`` : a user's follow of an ``Organization``
+                        (roadmap 2.3); also keyed on the
+                        ``(user_id, organization_id)`` pair.
+``Review``          : a post-workshop rating and comment
+                        (roadmap 2.4); one per ``(workshop_id,
+                        user_id)`` pair.
 
 Adding a new model
 ------------------
@@ -31,8 +44,26 @@ Adding a new model
 
 from src.models.base import Base
 from src.models.idempotency_key import IdempotencyKey
+from src.models.organization import (
+    Organization,
+    OrganizationFollow,
+    OrganizationMembership,
+)
 from src.models.reservation import Reservation
+from src.models.review import Review
 from src.models.user import User
+from src.models.waitlist_entry import WaitlistEntry
 from src.models.workshop import Workshop
 
-__all__ = ["Base", "IdempotencyKey", "Reservation", "User", "Workshop"]
+__all__ = [
+    "Base",
+    "IdempotencyKey",
+    "Organization",
+    "OrganizationFollow",
+    "OrganizationMembership",
+    "Reservation",
+    "Review",
+    "User",
+    "WaitlistEntry",
+    "Workshop",
+]
