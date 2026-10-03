@@ -1,9 +1,13 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json* ./
-# ``npm ci`` installs the exact tree in package-lock.json. It fails
-# rather than silently resolving different versions, which is what
-# ``npm install`` would do and what made builds unreproducible.
+# npm only links ``@ws/*`` workspace packages whose
+# directories exist when the install runs, so every
+# workspace package must be copied before ``npm ci``.
+# Installing first (as a plain single-package project
+# would) leaves node_modules/@ws empty and the build
+# fails with "Cannot find module '@ws/types'".
+COPY packages/ packages/
 RUN npm ci
 COPY . .
 RUN npm run build

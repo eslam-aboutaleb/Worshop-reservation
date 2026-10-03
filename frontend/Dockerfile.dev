@@ -15,8 +15,11 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install deps in a cached layer; node_modules is bind-mounted in
-# docker-compose.dev.yml so this only runs once.
+# docker-compose.dev.yml so this only runs once. The workspace
+# packages are copied first: npm only links the ``@ws/*``
+# workspaces whose directories exist at install time.
 COPY package.json package-lock.json* ./
+COPY packages/ packages/
 RUN npm install
 
 # The source is bind-mounted in docker-compose.dev.yml; no COPY here.

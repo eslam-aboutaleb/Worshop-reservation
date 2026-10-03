@@ -6,7 +6,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      # Bound to loopback only: the database and the
+      # backend admin port are not reachable from the
+      # LAN. The backend is meant to be reached through
+      # the frontend's nginx proxy; 127.0.0.1 keeps
+      # localhost curl/psql workflows working.
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -19,8 +24,14 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./backend/.env
+    # The compose stack serves plain HTTP, so the
+    # session cookie must not carry the Secure
+    # attribute. A TLS deployment should remove this
+    # line (the application default is Secure=true).
+    environment:
+      COOKIE_SECURE: "false"
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -40,6 +51,19 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      # nginx proxies /health to the backend, so a
+      # 200 here means both the proxy and the upstream
+      # are serving. The URL uses 127.0.0.1 rather
+      # than localhost: busybox wget resolves
+      # "localhost" to ::1 first and does not fall
+      # back to IPv4, while nginx listens on 0.0.0.0
+      # only, so the check would always fail.
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:

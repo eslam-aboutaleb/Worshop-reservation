@@ -109,6 +109,10 @@ services:
       # anonymous volumes so they stay inside the container - the
       # Linux container cannot use a host-built node_modules folder.
       - ./frontend/src:/app/src:rw
+      # The @ws/* workspace packages are imported through the
+      # node_modules symlinks npm created at install time; mount
+      # them so edits to a package are picked up live too.
+      - ./frontend/packages:/app/packages:rw
       - ./frontend/index.html:/app/index.html:rw
       - ./frontend/vite.config.ts:/app/vite.config.ts:rw
       - ./frontend/tsconfig.json:/app/tsconfig.json:rw
