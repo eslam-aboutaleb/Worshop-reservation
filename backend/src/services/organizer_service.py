@@ -27,10 +27,9 @@ from datetime import UTC, datetime
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import is_admin
 
-from src.auth import is_admin
 from src.models.organization import OrganizationMembership
-from src.models.reservation import Reservation
 from src.models.workshop import WORKSHOP_STATUS_PUBLISHED, Workshop
 from src.schemas.organizer import (
     OrganizerAttendeeSummary,

@@ -10,14 +10,14 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth.models import User
+from ws_core.errors import WorkshopNotFoundError
 
 from src.auth import hash_password
-from src.exceptions import WorkshopNotFoundError
 from src.models.reservation import (
     RESERVATION_STATUS_ACTIVE,
     RESERVATION_STATUS_CANCELLED,
 )
-from src.models.user import User
 from src.schemas.reservation import ReservationCreate
 from src.services import reservation_service, workshop_service
 

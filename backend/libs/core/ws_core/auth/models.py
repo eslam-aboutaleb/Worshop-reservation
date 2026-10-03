@@ -1,15 +1,18 @@
 """User account SQLAlchemy model.
 
 Personal accounts let attendees see and cancel their own reservations
-across devices. Authentication is handled by ``src/auth.py``; this
-module is concerned only with persistence.
+across devices. Authentication is handled by
+:mod:`ws_core.auth` (password hashing, JWT issuance, and the
+FastAPI dependencies); this module is concerned only with
+persistence.
 
 Password storage
 ----------------
 
 ``password_hash`` stores a salted Argon2id PHC string produced by
-``auth.hash_password``. Each value embeds its algorithm version, cost
-parameters, salt, and digest so the format remains self-describing.
+:func:`ws_core.auth.password.hash_password`. Each value embeds its
+algorithm version, cost parameters, salt, and digest so the format
+remains self-describing.
 
 The plaintext password is never written to a log and never appears in
 a response schema. ``UserResponse`` exposes only the public fields.
@@ -20,10 +23,20 @@ Platform roles
 ``role`` is the platform-wide role introduced by the organizations
 plan (roadmap 2.1): ``attendee`` (the default), ``organizer`` (may
 manage workshops), or ``admin``. It is distinct from the
-environment-configured super-admin flag checked by ``auth.is_admin``:
-``is_admin`` remains the super-admin signal, while ``role`` gates
-organizer-platform access. Organization creators are promoted to
-``organizer`` when they create their first organization.
+environment-configured super-admin flag checked by
+:func:`ws_core.auth.dependencies.is_admin`: ``is_admin`` remains the
+super-admin signal, while ``role`` gates organizer-platform access.
+Organization creators are promoted to ``organizer`` when they create
+their first organization.
+
+Why this model lives in ws-core
+---------------------------------
+
+The account table is shared infrastructure: the auth router, the
+reservation ownership rules, and every plugin's "who is the caller"
+question all read the same row. Keeping ``User`` in core (next to
+``Base``) lets a plugin define its own models with relationships back
+to ``User`` on the single shared metadata registry.
 """
 
 import uuid
@@ -33,7 +46,7 @@ from sqlalchemy import CheckConstraint, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from src.models.base import Base
+from ws_core.db.base import Base
 
 USER_ROLE_ATTENDEE = "attendee"
 USER_ROLE_ORGANIZER = "organizer"

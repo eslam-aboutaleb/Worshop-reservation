@@ -1,17 +1,17 @@
-"""Authentication rate limiting (plan 0.3).
+"""Authentication rate limiting.
 
 A small ``RateLimiter`` interface sits between the auth
-routers and the attempt counter so Phase 3 can swap the
-in-process implementation for a Redis fixed window
-(``INCR`` + ``EXPIRE``) without touching any router.
+routers and the attempt counter so a Redis fixed window
+(``INCR`` + ``EXPIRE``) can replace the in-process
+implementation without touching any router.
 
 The default implementation is an **in-process fixed
 window** keyed by ``(client IP, email)``. It is
 deliberately simple: it protects a single-process
 deployment against credential brute-force and signup
-spam, and it is the documented limitation that Phase 3's
-Redis backend removes (a multi-replica deployment would
-need the shared store to see attempts across replicas).
+spam, and it is the documented limitation that a Redis
+backend removes (a multi-replica deployment would need
+the shared store to see attempts across replicas).
 
 Semantics
 ---------
@@ -34,14 +34,14 @@ import threading
 import time
 from abc import ABC, abstractmethod
 
-from src.configuration.settings import get_settings
+from ws_core.config import get_settings
 
 
 class RateLimiter(ABC):
     """Interface for attempt-budget enforcement on auth endpoints.
 
     Implementations must be safe under concurrent access.
-    The in-process default uses an ``asyncio.Lock``; a Redis
+    The in-process default uses a ``threading.Lock``; a Redis
     implementation relies on the atomicity of ``INCR``.
     """
 
@@ -172,9 +172,9 @@ def reset_rate_limiter() -> None:
 def auth_rate_limit_key(client_ip: str, email: str) -> str:
     """Build the rate-limit key for an auth attempt.
 
-    The key is the ``(client IP, email)`` pair the plan
-    specifies: a single IP hammering many emails, or many
-    IPs hammering one email, are tracked separately.
+    The key is the ``(client IP, email)`` pair: a single IP
+    hammering many emails, or many IPs hammering one email,
+    are tracked separately.
 
     Args:
         client_ip: The peer address of the request.

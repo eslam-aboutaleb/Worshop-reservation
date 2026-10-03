@@ -14,10 +14,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import structlog
+import ws_core.db.engine as db_engine
 from sqlalchemy import select
+from ws_core.db.engine import init_db
+from ws_core.logging import configure_logging
 
-from src.configuration.database import async_session_factory
-from src.configuration.logging import configure_logging
+from src.configuration.settings import get_settings
 from src.models.workshop import Workshop
 
 logger = structlog.get_logger(__name__)
@@ -30,7 +32,7 @@ async def _seed() -> None:
     The check is a single ``SELECT ... LIMIT 1``; for a multi-table
     seed (users, etc.) prefer an explicit guard column.
     """
-    async with async_session_factory() as session:
+    async with db_engine.async_session_factory() as session:
         existing = (await session.execute(select(Workshop.id).limit(1))).first()
         if existing is not None:
             logger.info("seed.workshops_already_present", status="skipped")
@@ -90,6 +92,10 @@ async def _seed() -> None:
 def main() -> None:
     """Console-script entry point for ``python -m src.seed``."""
     configure_logging()
+    # The seed script runs standalone (before uvicorn), so it must
+    # build the process-wide engine itself; create_app() is not on
+    # this path.
+    init_db(get_settings())
     asyncio.run(_seed())
 
 

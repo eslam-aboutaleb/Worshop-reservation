@@ -2,6 +2,9 @@ FROM python:3.12-slim AS builder
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml .
+# The root project depends on the ws-core workspace
+# member, so its source must be present for the install.
+COPY libs ./libs
 RUN uv venv /opt/venv && \
     VIRTUAL_ENV=/opt/venv uv pip install --no-cache .
 

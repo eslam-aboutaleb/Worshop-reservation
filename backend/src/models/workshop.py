@@ -24,8 +24,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from src.models.base import Base
+from ws_core.db.base import Base
 
 WORKSHOP_STATUS_DRAFT = "draft"
 WORKSHOP_STATUS_PUBLISHED = "published"

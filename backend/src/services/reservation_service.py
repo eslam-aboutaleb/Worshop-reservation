@@ -45,8 +45,8 @@ import structlog
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.exceptions import (
+from ws_core.auth.models import User
+from ws_core.errors import (
     AlreadyReservedError,
     RegistrationClosedError,
     ReservationNotFoundError,
@@ -54,13 +54,14 @@ from src.exceptions import (
     WorkshopFullError,
     WorkshopNotFoundError,
 )
+from ws_core.realtime import publish
+
 from src.models.idempotency_key import IdempotencyKey
 from src.models.reservation import (
     RESERVATION_STATUS_ACTIVE,
     RESERVATION_STATUS_CANCELLED,
     Reservation,
 )
-from src.models.user import User
 from src.models.waitlist_entry import (
     WAITLIST_STATUS_ACTIVE,
     WAITLIST_STATUS_CANCELLED,
@@ -71,7 +72,6 @@ from src.models.workshop import (
     WORKSHOP_STATUS_PUBLISHED,
     Workshop,
 )
-from src.realtime import publish
 from src.schemas.reservation import (
     ReservationCancelResponse,
     ReservationCreate,

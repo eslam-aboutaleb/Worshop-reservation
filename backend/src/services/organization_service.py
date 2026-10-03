@@ -40,18 +40,18 @@ import uuid
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.exceptions import (
+from ws_core.auth.models import USER_ROLE_ORGANIZER
+from ws_core.errors import (
     CannotFollowOwnOrganizationError,
     OrganizationNotFoundError,
 )
+
 from src.models.organization import (
     MEMBERSHIP_ROLE_OWNER,
     Organization,
     OrganizationFollow,
     OrganizationMembership,
 )
-from src.models.user import USER_ROLE_ORGANIZER
 from src.schemas.organization import (
     OrganizationCreate,
     OrganizationMembershipResponse,

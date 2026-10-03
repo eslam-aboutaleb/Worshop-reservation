@@ -30,7 +30,8 @@ os.environ.setdefault(
 )
 os.environ.setdefault("ADMIN_EMAIL", "eslamehababoutaleb@gmail.com")
 
-from src.configuration.database import get_db  # noqa: E402
+from ws_core.db.engine import get_db  # noqa: E402
+
 from src.main import app  # noqa: E402
 from src.models.workshop import Workshop  # noqa: E402
 
@@ -63,7 +64,7 @@ def _isolate_sse_state() -> None:
     unsubscribing would otherwise leak a queue that ``publish``
     would try to write to, eventually causing the runner to hang.
     """
-    from src.realtime import _global_subscribers
+    from ws_core.realtime import _global_subscribers
 
     _global_subscribers.clear()
 
@@ -79,7 +80,7 @@ def _isolate_rate_limiter() -> None:
     ``(client IP, email)`` key. Resetting before each test
     makes every case start with a clean budget.
     """
-    from src.rate_limiting import reset_rate_limiter
+    from ws_core.rate_limit import reset_rate_limiter
 
     reset_rate_limiter()
 
@@ -191,8 +192,8 @@ def auth_headers(token: str, **extra: str) -> dict[str, str]:
 
 @pytest.fixture
 def mock_broker(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    import src.realtime
+    import ws_core.realtime
 
     mock = MagicMock()
-    monkeypatch.setattr(src.realtime, "publish", mock)
+    monkeypatch.setattr(ws_core.realtime, "publish", mock)
     return mock

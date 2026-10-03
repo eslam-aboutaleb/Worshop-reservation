@@ -1,9 +1,9 @@
 """Alembic environment.
 
-Wired for online migrations against the async engine defined in
-`src.configuration.database`. Imports every model via
-`src.models` so `autogenerate` can see them, but the initial
-migration is hand-written (the partial unique index's
+Wired for online migrations against its own async engine (built
+from the settings in `src.configuration.settings`). Imports every
+model via `src.models` so `autogenerate` can see them, but the
+initial migration is hand-written (the partial unique index's
 `postgresql_where` historically doesn't render reliably in
 autogenerate output).
 """
@@ -11,10 +11,10 @@ autogenerate output).
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
 from src.configuration.settings import get_settings
 from src.models import Base  # noqa: F401  # import for metadata side effects
 from src.models.idempotency_key import IdempotencyKey  # noqa: F401

@@ -28,15 +28,16 @@ import uuid
 from datetime import UTC, datetime
 
 import structlog
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.auth import is_admin
-from src.exceptions import (
+from ws_core.auth import is_admin
+from ws_core.errors import (
     OrganizationNotFoundError,
     WorkshopHasActiveReservationsError,
     WorkshopNotFoundError,
 )
+from ws_core.realtime import publish
+
 from src.models.organization import OrganizationFollow, OrganizationMembership
 from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
 from src.models.workshop import (
@@ -44,7 +45,6 @@ from src.models.workshop import (
     WORKSHOP_STATUS_PUBLISHED,
     Workshop,
 )
-from src.realtime import publish
 from src.schemas.workshop import (
     ReservationSummary,
     WorkshopCreate,

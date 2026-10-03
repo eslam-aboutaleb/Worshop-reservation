@@ -31,10 +31,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth.models import User
+from ws_core.db.engine import get_db
 
 from src.auth import get_current_organizer
-from src.configuration.database import get_db
-from src.models.user import User
 from src.schemas.organizer import OrganizerDashboardResponse
 from src.services import organizer_service
 

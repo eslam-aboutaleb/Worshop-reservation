@@ -10,19 +10,31 @@ Auth flow
   currently authenticated user.
 
 The bearer token is opaque to the frontend: it is a self-issued JWT
-(see ``src/auth.py``) and is stored in ``localStorage`` by
+(see :mod:`ws_core.auth.tokens`) and is stored in ``localStorage`` by
 ``frontend/src/api.ts``. It is not a session token; there is no
 revocation list. If a user wants to "log out everywhere" they rotate
 ``AUTH_SECRET_KEY`` in the deployment (every issued token becomes
 invalid in one stroke).
+
+This module also owns the shared :data:`NormalizedEmail` type: every
+request body that contains a user-supplied email uses it, so the
+value is lowercased and trimmed before it is persisted or queried
+and the database's case-insensitive uniqueness just works.
 """
 
 import uuid
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
 
-from src.schemas.common import NormalizedEmail
+
+def normalize_email(value: str) -> str:
+    """Normalize an email consistently before it is persisted or queried."""
+    return value.strip().lower()
+
+
+NormalizedEmail = Annotated[EmailStr, AfterValidator(normalize_email)]
 
 
 class AccountCreate(BaseModel):

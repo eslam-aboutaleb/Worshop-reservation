@@ -15,11 +15,11 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth.models import User
+from ws_core.errors import ReservationNotFoundError, WorkshopNotFoundError
 
 from src.auth import hash_password
-from src.exceptions import ReservationNotFoundError, WorkshopNotFoundError
 from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
-from src.models.user import User
 from src.schemas.reservation import ReservationCreate
 from src.services import reservation_service
 
@@ -292,7 +292,7 @@ async def test_already_reserved_raises_for_same_account(
     session: AsyncSession, workshop_id: str
 ) -> None:
     """The same account booking twice in a row raises AlreadyReservedError."""
-    from src.exceptions import AlreadyReservedError
+    from ws_core.errors import AlreadyReservedError
 
     user = await _make_user(session)
     await reservation_service.create_reservation(

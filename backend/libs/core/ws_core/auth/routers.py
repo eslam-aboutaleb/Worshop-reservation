@@ -42,7 +42,6 @@ response time from leaking which emails are
 registered.
 """
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response, status
@@ -51,30 +50,32 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth import (
+from ws_core.auth.dependencies import get_current_user, is_admin
+from ws_core.auth.models import User
+from ws_core.auth.password import (
     DUMMY_PASSWORD_HASH,
-    clear_session_cookie,
-    create_access_token,
-    get_current_user,
     hash_password,
-    is_admin,
-    set_session_cookie,
     verify_password,
 )
-from src.configuration.database import get_db
-from src.exceptions import (
-    EmailAlreadyExistsError,
-    InvalidCredentialsError,
-    RateLimitedError,
-)
-from src.models.user import User
-from src.rate_limiting import auth_rate_limit_key, get_rate_limiter
-from src.schemas.auth import (
+from ws_core.auth.schemas import (
     AccountCreate,
     AuthResponse,
     LoginRequest,
     UserResponse,
 )
+from ws_core.auth.tokens import (
+    clear_session_cookie,
+    create_access_token,
+    set_session_cookie,
+)
+from ws_core.config import get_settings
+from ws_core.db.engine import get_db
+from ws_core.errors import (
+    EmailAlreadyExistsError,
+    InvalidCredentialsError,
+    RateLimitedError,
+)
+from ws_core.rate_limit import auth_rate_limit_key, get_rate_limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -251,6 +252,4 @@ async def logout(response: Response) -> Response:
 
 def _lockout_seconds() -> int:
     """Return the configured lockout window for 429 responses."""
-    from src.configuration.settings import get_settings
-
     return get_settings().auth_lockout_seconds

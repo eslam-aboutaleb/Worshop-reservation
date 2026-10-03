@@ -7,9 +7,8 @@ Revises: 0002_add_idempotency_keys
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0003_add_user_accounts"
 down_revision: str | Sequence[str] | None = "0002_add_idempotency_keys"

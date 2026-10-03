@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from pydantic import EmailStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from ws_core.config import configure as configure_ws_core
 
 
 class Settings(BaseSettings):
@@ -76,3 +77,11 @@ def get_settings() -> Settings:
         The configured ``Settings`` object.
     """
     return Settings()
+
+
+# Register the concrete settings with ws-core. Core modules are
+# domain-agnostic: they read configuration through the CoreSettings
+# protocol (see ws_core.config), and this module supplies the value.
+# The call runs at import time so any later ws_core.config.get_settings()
+# resolves to this instance.
+configure_ws_core(get_settings())

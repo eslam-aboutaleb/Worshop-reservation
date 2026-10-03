@@ -1,41 +1,45 @@
 """In-process pub/sub for Server-Sent Events.
 
-Each connected SSE client owns an ``asyncio.Queue``. The reservation
-service calls :func:`publish` on every create/cancel; the queue gets
-a copy of the event payload; the SSE generator yields it as a
-``data: ...\\n\\n`` message. The single-channel design lets the
-frontend open one ``EventSource`` and filter by ``workshop_id`` on
-each event payload.
+Each connected SSE client owns an ``asyncio.Queue``. The
+reservation service calls :func:`publish` on every
+create/cancel; the queue gets a copy of the event payload;
+the SSE generator yields it as a ``data: ...\\n\\n`` message.
+The single-channel design lets the frontend open one
+``EventSource`` and filter by ``workshop_id`` on each event
+payload.
 
 Why two subscriber sets?
 ------------------------
 
-* :data:`_global_subscribers` receives every workshop's events.
-  This is what the public SSE endpoint (``GET /api/workshops/events``)
-  uses so the browser can render live spot counts on the list page.
+* :data:`_global_subscribers` receives every workshop's
+  events. This is what the public SSE endpoint
+  (``GET /api/workshops/events``) uses so the browser can
+  render live spot counts on the list page.
 * :data:`_workshop_subscribers` is reserved for per-workshop
-  channels. No per-workshop endpoint is exposed today, but the
-  data structure is in place if/when one is added.
+  channels. No per-workshop endpoint is exposed today, but
+  the data structure is in place if/when one is added.
 
 Concurrency
 -----------
 
 All subscriber-set mutations happen under :data:`_lock`; the
-``publish`` snapshot is taken under the lock and then iterated
-without it so a slow subscriber cannot stall the producer. ``put_nowait``
-on a full queue is dropped (logged at debug level) so a stuck client
-cannot back up the event loop; the next user action will re-fetch
-the canonical state via the workshop detail endpoint.
+``publish`` snapshot is taken under the lock and then
+iterated without it so a slow subscriber cannot stall the
+producer. ``put_nowait`` on a full queue is dropped (logged
+at debug level) so a stuck client cannot back up the event
+loop; the next user action will re-fetch the canonical state
+via the workshop detail endpoint.
 
 Scaling past one replica
 ------------------------
 
-This module is in-process and does not cross replica boundaries.
-A multi-replica deployment must replace this file with a Redis
-pub/sub-backed implementation; the public surface
-(``subscribe_global``/``unsubscribe_global``/``publish``/``format_sse``)
-should stay the same so call sites in ``services`` and the
-``api/routers/workshops`` module do not change.
+This module is in-process and does not cross replica
+boundaries. A multi-replica deployment uses the Redis
+adapter (see :mod:`ws_core.realtime.redis`, added in the
+realtime plan); the public surface
+(``subscribe_global``/``unsubscribe_global``/``publish``/
+``format_sse``) stays the same so call sites in services and
+the workshops router do not change.
 """
 
 import asyncio

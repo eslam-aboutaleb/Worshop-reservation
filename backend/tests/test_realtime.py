@@ -11,8 +11,7 @@ import json
 import uuid
 
 import pytest
-
-from src.realtime import (
+from ws_core.realtime import (
     _global_subscribers,
     format_sse,
     publish,
@@ -92,7 +91,7 @@ async def test_slow_consumer_is_dropped_not_blocked() -> None:
     queue: asyncio.Queue = asyncio.Queue(maxsize=1)
     queue.put_nowait({"existing": True})
     # Hand-register the saturated queue so the publisher sees it.
-    from src.realtime import _lock
+    from ws_core.realtime import _lock
 
     async with _lock:
         _global_subscribers.add(queue)

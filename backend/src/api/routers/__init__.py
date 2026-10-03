@@ -1,9 +1,11 @@
 """Application HTTP routers grouped by resource.
 
 Each sub-module declares an ``APIRouter`` for one resource
-(``workshops``, ``reservations``, ``users``). This ``__init__``
-composes them under a single ``router`` so :mod:`src.main` only has
-to mount one thing.
+(``workshops``, ``reservations``, ``organizations``, ``organizer``).
+This ``__init__`` composes them under a single ``router`` so
+:mod:`src.main` only has to mount one thing. The core ``/auth``
+router is mounted separately by :mod:`src.main` (it lives in
+:mod:`ws_core.auth.routers`).
 
 Conventions
 -----------
@@ -13,7 +15,7 @@ Conventions
   response. Anything that needs an explicit transaction or a row
   lock belongs in the service layer.
 * Routers must not catch domain exceptions raised by the service
-  layer; the handlers in :mod:`src.exceptions` turn them into JSON
+  layer; the handlers in :mod:`ws_core.errors` turn them into JSON
   responses.
 """
 
@@ -23,12 +25,10 @@ from src.api.routers import (
     organizations,
     organizer,
     reservations,
-    users,
     workshops,
 )
 
 router = APIRouter()
-router.include_router(users.router)
 router.include_router(workshops.router)
 router.include_router(reservations.router)
 router.include_router(organizations.router)

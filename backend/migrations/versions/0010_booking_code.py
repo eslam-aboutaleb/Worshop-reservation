@@ -20,7 +20,6 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
-from sqlalchemy.dialects import postgresql
 
 revision: str = "0010_booking_code"
 down_revision: str | Sequence[str] | None = "0009_waitlist"

@@ -116,7 +116,8 @@ class WorkshopCreate(BaseModel):
         """
         if value is None:
             return value
-        from datetime import UTC, datetime as dt
+        from datetime import UTC
+        from datetime import datetime as dt
 
         now = dt.now(UTC)
         # Compare on naive UTC instants: ``AwareDatetime`` values

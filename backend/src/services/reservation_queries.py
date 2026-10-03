@@ -5,10 +5,10 @@ from datetime import UTC, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth.models import User
 
 from src.models.idempotency_key import IdempotencyKey
 from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
-from src.models.user import User
 from src.models.waitlist_entry import (
     WAITLIST_STATUS_ACTIVE,
     WaitlistEntry,

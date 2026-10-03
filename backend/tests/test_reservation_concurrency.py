@@ -12,11 +12,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from ws_core.auth.models import User
 
 from src.auth import hash_password
 from src.models.idempotency_key import IdempotencyKey
 from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
-from src.models.user import User
 from src.schemas.reservation import ReservationCreate
 from src.services import reservation_service
 
@@ -65,7 +65,7 @@ async def test_concurrent_reservations_yield_exactly_one_success(workshop) -> No
                     user=accounts[idx],
                 )
                 results.append((201, response))
-            except Exception as exc:  # noqa: BLE001: tests inspect the exception type
+            except Exception as exc:  # noqa: BLE001 - tests inspect the exception type
                 results.append((409, exc))
 
     workers = [asyncio.create_task(attempt(i)) for i in range(50)]
@@ -224,7 +224,7 @@ async def test_reservation_mirrors_the_account_not_the_request_body(workshop) ->
     (``schemas.common.NormalizedEmail``), not here; this only asserts
     that whatever the account holds is what gets stored.
     """
-    from src.models.user import User as _User
+    from ws_core.auth.models import User as _User
 
     async with _session_factory() as session:
         account = _User(
@@ -252,7 +252,7 @@ async def test_reservation_mirrors_the_account_not_the_request_body(workshop) ->
 @pytest.mark.asyncio
 async def test_same_account_cannot_hold_two_active_seats(workshop) -> None:
     """A second reservation by the same account is rejected as a duplicate."""
-    from src.exceptions import AlreadyReservedError
+    from ws_core.errors import AlreadyReservedError
 
     user = await _make_user(f"dupe_{uuid.uuid4().hex}@example.com")
     async with _session_factory() as session:

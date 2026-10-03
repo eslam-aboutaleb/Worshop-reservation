@@ -11,7 +11,8 @@ Two conventions:
   pass ORM instances directly into ``Model.model_validate(...)``.
 """
 
-from src.schemas.auth import AccountCreate, AuthResponse, LoginRequest, UserResponse
+from ws_core.auth.schemas import AccountCreate, AuthResponse, LoginRequest, UserResponse
+
 from src.schemas.organization import (
     OrganizationCreate,
     OrganizationMembershipResponse,

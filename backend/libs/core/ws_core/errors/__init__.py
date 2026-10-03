@@ -1,9 +1,11 @@
 """Custom domain exceptions and their FastAPI handlers.
 
-Every domain-level error condition in the service raises one of the
-``*Error`` classes declared here, and ``main.create_app`` registers
-the corresponding ``*_handler`` to translate it into a uniform JSON
-envelope.
+Every domain-level error condition in a service raises one
+of the ``*Error`` classes declared here, and the
+composition root (or a plugin) registers the corresponding
+handler to translate it into a uniform JSON envelope via
+:func:`register_domain_handlers
+<ws_core.errors.registry.register_domain_handlers>`.
 
 Envelope shape
 --------------
@@ -17,20 +19,22 @@ Every handler returns
         }
     }
 
-The frontend branches on ``error.code`` rather than parsing the
-message, so the human string can be localized later without
-breaking clients. Always include a code; never include stack traces
-or PII.
+The frontend branches on ``error.code`` rather than parsing
+the message, so the human string can be localized later
+without breaking clients. Always include a code; never
+include stack traces or PII.
 
 Adding a new domain error
 -------------------------
 
-1. Declare a subclass of ``Exception`` here. Take any contextual
-   data as constructor arguments and store it on ``self``.
-2. Implement a ``async def *_handler(request, exc) -> JSONResponse``
-   that returns the envelope with the right HTTP status.
-3. Register it in :func:`src.main.create_app` with
-   ``app.add_exception_handler(MyError, my_error_handler)``.
+1. Declare a subclass of ``DomainError`` here (or in the
+   plugin that owns the domain). Take any contextual data
+   as constructor arguments and store it on ``self``.
+2. The shared :func:`domain_error_handler` already
+   translates any ``DomainError`` subclass into the
+   envelope using its ``status_code`` and ``code``.
+3. Register it with
+   ``register_domain_handlers(app, [MyError, ...])``.
 """
 
 import structlog
@@ -162,7 +166,7 @@ class RegistrationClosedError(DomainError):
 class RateLimitedError(DomainError):
     """Raised when a caller exceeds the configured attempt budget.
 
-    Used by the auth rate limiter (plan 0.3). The lockout is
+    Used by the auth rate limiter. The lockout is
     time-boxed by ``Settings.auth_lockout_seconds``; the frontend
     surfaces the message and disables the form until it clears.
 
@@ -262,8 +266,8 @@ class CannotFollowOwnOrganizationError(DomainError):
 
     A member (owner or plain member) already has a stronger
     relationship with the organization than a follow, so the
-    follow endpoint rejects the request rather than creating
-    a redundant row. The response is a 409 rather than a 404
+    follow endpoint rejects the request rather than creating a
+    redundant row. The response is a 409 rather than a 404
     because the organization genuinely exists and is visible
     to the caller; only the requested relationship is invalid.
 
@@ -345,3 +349,28 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
         status_code=exc.status_code,
         content={"error": {"code": exc.code, "message": str(exc)}},
     )
+
+
+__all__ = [
+    "AlreadyReservedError",
+    "CannotFollowOwnOrganizationError",
+    "DomainError",
+    "EmailAlreadyExistsError",
+    "InvalidCredentialsError",
+    "OrganizationNotFoundError",
+    "RateLimitedError",
+    "RegistrationClosedError",
+    "ReservationNotFoundError",
+    "ReviewAlreadyExistsError",
+    "ReviewNotEligibleError",
+    "WaitlistEntryNotFoundError",
+    "WorkshopFullError",
+    "WorkshopHasActiveReservationsError",
+    "WorkshopNotFoundError",
+    "domain_error_handler",
+    "register_domain_handlers",
+]
+
+# Re-exported so the composition root registers every domain
+# error's handler in a single call from one import site.
+from ws_core.errors.registry import register_domain_handlers  # noqa: E402,F401

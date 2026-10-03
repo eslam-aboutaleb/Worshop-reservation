@@ -36,8 +36,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from src.models.base import Base
+from ws_core.db.base import Base
 
 MEMBERSHIP_ROLE_OWNER = "owner"
 MEMBERSHIP_ROLE_MEMBER = "member"

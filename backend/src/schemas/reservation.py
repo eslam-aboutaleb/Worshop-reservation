@@ -18,8 +18,7 @@ import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, Field
-
-from src.schemas.common import NormalizedEmail
+from ws_core.auth.schemas import NormalizedEmail
 
 
 class ReservationCreate(BaseModel):

@@ -9,9 +9,8 @@ Create Date: 2026-08-27 14:00:00.000000
 from collections.abc import Sequence
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "0002_add_idempotency_keys"
 down_revision: str | Sequence[str] | None = "0001_initial"

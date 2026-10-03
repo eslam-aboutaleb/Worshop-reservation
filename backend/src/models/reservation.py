@@ -32,8 +32,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Index, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from src.models.base import Base
+from ws_core.db.base import Base
 
 RESERVATION_STATUS_ACTIVE = "active"
 RESERVATION_STATUS_CANCELLED = "cancelled"

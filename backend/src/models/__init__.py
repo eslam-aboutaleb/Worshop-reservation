@@ -42,7 +42,9 @@ Adding a new model
    especially for partial indexes.
 """
 
-from src.models.base import Base
+from ws_core.auth.models import User
+from ws_core.db.base import Base
+
 from src.models.idempotency_key import IdempotencyKey
 from src.models.organization import (
     Organization,
@@ -51,7 +53,6 @@ from src.models.organization import (
 )
 from src.models.reservation import Reservation
 from src.models.review import Review
-from src.models.user import User
 from src.models.waitlist_entry import WaitlistEntry
 from src.models.workshop import Workshop
 

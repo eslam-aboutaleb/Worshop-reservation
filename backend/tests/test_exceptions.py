@@ -9,8 +9,7 @@ time.
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-from src.exceptions import (
+from ws_core.errors import (
     AlreadyReservedError,
     ReservationNotFoundError,
     WorkshopFullError,

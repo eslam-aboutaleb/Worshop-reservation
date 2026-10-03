@@ -72,21 +72,17 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import get_current_user, get_optional_user, is_admin
+from ws_core.auth.models import User
+from ws_core.db.engine import get_db
+from ws_core.realtime import format_sse, subscribe_global, unsubscribe_global
 
-from src.auth import (
-    get_current_organizer,
-    get_current_user,
-    get_optional_user,
-    is_admin,
-)
-from src.configuration.database import get_db
+from src.auth import get_current_organizer
 from src.configuration.settings import get_settings
-from src.models.user import User
-from src.realtime import format_sse, subscribe_global, unsubscribe_global
 from src.schemas.review import ReviewCreate, ReviewResponse
 from src.schemas.workshop import (
-    WaitlistJoinResponse,
     WaitlistEntryResponse,
+    WaitlistJoinResponse,
     WorkshopCreate,
     WorkshopDetailResponse,
     WorkshopListResponse,

@@ -33,15 +33,15 @@ from datetime import UTC, datetime
 import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.exceptions import (
+from ws_core.auth.models import User
+from ws_core.errors import (
     ReviewAlreadyExistsError,
     ReviewNotEligibleError,
     WorkshopNotFoundError,
 )
+
 from src.models.reservation import Reservation
 from src.models.review import Review
-from src.models.user import User
 from src.models.workshop import WORKSHOP_STATUS_PUBLISHED, Workshop
 from src.schemas.review import ReviewCreate, ReviewResponse, WorkshopReviewResponse
 

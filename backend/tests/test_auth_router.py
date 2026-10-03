@@ -9,8 +9,8 @@ from threading import get_ident
 
 import pytest
 from httpx import AsyncClient
+from ws_core.auth import routers as users_router
 
-from src.api.routers import users as users_router
 from src.auth import hash_password as real_hash_password
 from src.auth import verify_password as real_verify_password
 

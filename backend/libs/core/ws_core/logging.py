@@ -1,25 +1,32 @@
+"""Structured logging configuration for the service.
+
+All stdlib loggers (uvicorn, sqlalchemy, asyncpg, …) flow through
+the same structlog-rendered formatter so every line carries
+``timestamp``, ``level``, ``logger``, and any bound contextvars
+(e.g. ``request_id``). Format is JSON in production and a colored
+console renderer in development, controlled by
+``Settings.log_format``.
+
+The per-logger entries pin uvicorn/sqlalchemy/asyncpg at sensible
+defaults: turning the app to ``DEBUG`` should not also enable
+SQL statement logging. Set ``LOG_LEVEL_SQLALCHEMY=DEBUG`` (future
+knob) to override; for now the hard pin keeps the noise out.
+"""
+
 import logging
 import logging.config
 
 import structlog
 
-from src.configuration.settings import get_settings
+from ws_core.config import get_settings
 
 
 def configure_logging() -> None:
     """Configure structlog and the stdlib ``logging`` tree.
 
-    All stdlib loggers (uvicorn, sqlalchemy, asyncpg, …) flow through
-    the same structlog-rendered formatter so every line carries
-    ``timestamp``, ``level``, ``logger``, and any bound contextvars
-    (e.g. ``request_id``). Format is JSON in production and a colored
-    console renderer in development, controlled by
-    ``Settings.log_format``.
-
-    The per-logger entries pin uvicorn/sqlalchemy/asyncpg at sensible
-    defaults: turning the app to ``DEBUG`` should not also enable
-    SQL statement logging. Set ``LOG_LEVEL_SQLALCHEMY=DEBUG`` (future
-    knob) to override; for now the hard pin keeps the noise out.
+    Reads the registered settings (see
+    :func:`ws_core.config.configure`) for the log level and
+    renderer format.
     """
     settings = get_settings()
 

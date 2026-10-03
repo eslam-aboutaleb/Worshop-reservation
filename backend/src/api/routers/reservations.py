@@ -40,10 +40,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, Path, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import get_current_user
+from ws_core.auth.models import User
+from ws_core.db.engine import get_db
 
-from src.auth import get_current_user
-from src.configuration.database import get_db
-from src.models.user import User
 from src.schemas.reservation import (
     MyReservationResponse,
     ReservationCancelResponse,

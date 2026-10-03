@@ -7,12 +7,13 @@ Responsibilities of this module
 * Wire CORS from ``Settings.cors_origins`` (a JSON-decoded list of
   origins, see ``configuration/settings.py``).
 * Register exception handlers for every custom domain exception
-  declared in ``src/exceptions.py``. The handlers produce a uniform
-  ``{"error": {"code": "...", "message": "..."}}`` envelope so the
-  frontend can branch on ``error.code``.
-* Mount the versioned HTTP API under ``/api`` (the router itself
-  declares its own ``/workshops``, ``/reservations``, ``/auth``
-  prefixes - see ``src/api/routers/__init__.py``).
+  declared in ``ws_core.errors`` via
+  :func:`ws_core.errors.register_domain_handlers`. The handlers
+  produce a uniform ``{"error": {"code": "...", "message": "..."}``
+  envelope so the frontend can branch on ``error.code``.
+* Mount the core ``/auth`` router and the versioned HTTP API under
+  ``/api`` (the API router declares its own ``/workshops``,
+  ``/reservations`` prefixes - see ``src/api/routers/__init__.py``).
 * Expose ``/health`` at the root so Docker Compose's healthcheck
   (``docker-compose.yml``) can probe the container without going
   through the versioned API.
@@ -27,14 +28,12 @@ import time
 import uuid
 
 import structlog
+import ws_core.db.engine as db_engine
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-
-from src.api.routers import router as api_router
-from src.configuration.database import async_session_factory
-from src.configuration.logging import configure_logging
-from src.configuration.settings import get_settings
-from src.exceptions import (
+from ws_core.auth.routers import router as auth_router
+from ws_core.db.engine import init_db
+from ws_core.errors import (
     AlreadyReservedError,
     CannotFollowOwnOrganizationError,
     EmailAlreadyExistsError,
@@ -49,11 +48,37 @@ from src.exceptions import (
     WorkshopFullError,
     WorkshopHasActiveReservationsError,
     WorkshopNotFoundError,
-    domain_error_handler,
+    register_domain_handlers,
 )
+from ws_core.logging import configure_logging
+
+from src.api.routers import router as api_router
+from src.configuration.settings import get_settings
 from src.models.idempotency_key import IdempotencyKey
 
 settings = get_settings()
+
+logger = structlog.get_logger(__name__)
+
+# Every domain error the app (and its core) can raise. Each is bound
+# to the shared domain_error_handler, which renders the uniform
+# {"error": {"code", "message"}} envelope.
+_DOMAIN_ERRORS = [
+    WorkshopNotFoundError,
+    ReservationNotFoundError,
+    WorkshopFullError,
+    AlreadyReservedError,
+    WorkshopHasActiveReservationsError,
+    RegistrationClosedError,
+    RateLimitedError,
+    WaitlistEntryNotFoundError,
+    EmailAlreadyExistsError,
+    InvalidCredentialsError,
+    OrganizationNotFoundError,
+    CannotFollowOwnOrganizationError,
+    ReviewNotEligibleError,
+    ReviewAlreadyExistsError,
+]
 
 
 def create_app() -> FastAPI:
@@ -67,6 +92,11 @@ def create_app() -> FastAPI:
         A fully wired ``FastAPI`` instance ready to be served.
     """
     configure_logging()
+    # Build the process-wide async engine and session factory from the
+    # resolved settings. Done here (not at import time) so the engine
+    # is configured exactly once, after settings are registered with
+    # ws-core, and so re-configuration never leaks a connection pool.
+    init_db(settings)
 
     app = FastAPI(
         title="Workshop Reservations API",
@@ -115,21 +145,11 @@ def create_app() -> FastAPI:
         max_age=600,
     )
 
-    app.add_exception_handler(WorkshopNotFoundError, domain_error_handler)
-    app.add_exception_handler(ReservationNotFoundError, domain_error_handler)
-    app.add_exception_handler(WorkshopFullError, domain_error_handler)
-    app.add_exception_handler(AlreadyReservedError, domain_error_handler)
-    app.add_exception_handler(WorkshopHasActiveReservationsError, domain_error_handler)
-    app.add_exception_handler(RegistrationClosedError, domain_error_handler)
-    app.add_exception_handler(RateLimitedError, domain_error_handler)
-    app.add_exception_handler(WaitlistEntryNotFoundError, domain_error_handler)
-    app.add_exception_handler(EmailAlreadyExistsError, domain_error_handler)
-    app.add_exception_handler(InvalidCredentialsError, domain_error_handler)
-    app.add_exception_handler(OrganizationNotFoundError, domain_error_handler)
-    app.add_exception_handler(CannotFollowOwnOrganizationError, domain_error_handler)
-    app.add_exception_handler(ReviewNotEligibleError, domain_error_handler)
-    app.add_exception_handler(ReviewAlreadyExistsError, domain_error_handler)
+    register_domain_handlers(app, _DOMAIN_ERRORS)
 
+    # Core auth routes (/api/auth/...) and the domain API share the
+    # /api prefix so the wire contract is unchanged.
+    app.include_router(auth_router, prefix="/api")
     app.include_router(api_router, prefix="/api")
 
     @app.on_event("startup")
@@ -149,7 +169,7 @@ def create_app() -> FastAPI:
         from sqlalchemy import delete as sa_delete
 
         try:
-            async with async_session_factory() as session:
+            async with db_engine.async_session_factory() as session:
                 await session.execute(
                     sa_delete(IdempotencyKey).where(
                         IdempotencyKey.expires_at < datetime.now(UTC)
