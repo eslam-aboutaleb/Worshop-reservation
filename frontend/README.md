@@ -26,16 +26,23 @@ integrated with the FastAPI backend. It is the companion to the top-level
 
 ## Goals & Boundaries
 
-- **Thin client.** The UI never holds domain rules (capacity, cancellation
-  policy, admin gating). It renders whatever the backend returns and
-  forwards intent through [`api.ts`](./src/api.ts).
+- **Thin client.** The UI never holds domain rules (capacity,
+  cancellation policy, admin gating). It renders whatever the backend returns and
+  forwards intent through the typed client in
+  [`@ws/api-client`](./packages/api-client) (the app holds one
+  module-level singleton in [`apiClient.ts`](./src/apiClient.ts)).
 - **One origin.** Every API call targets `/api/...`. The browser sees a
   same-origin request, which lets the session cookie travel automatically
   and avoids CORS preflights.
-- **Type-safe end to end.** TypeScript interfaces in
-  [`types.ts`](./src/types.ts) mirror the Pydantic schemas in
-  `backend/src/schemas/`. When the backend shape changes, update the TS
-  interface in the same commit.
+- **Type-safe end to end.** TypeScript types live in
+  [`@ws/types`](./packages/types): the request and response schemas are
+  **generated** into `openapi.d.ts` from the backend's OpenAPI document,
+  while `SSEEvent` and `ApiErrorCode` (not part of the OpenAPI document)
+  are hand-maintained in `src/index.ts`. The generated schemas mirror the
+  Pydantic schemas in
+  `backend/libs/reservation/ws_reservation/schemas/`. When the backend
+  shape changes, regenerate and update the hand-maintained types in the
+  same commit.
 - **Progressive enhancement.** Anonymous users can browse and reserve.
   Signed-in users get richer data (their own reservations on a workshop
   detail page, full dashboard history).
@@ -44,81 +51,132 @@ integrated with the FastAPI backend. It is the companion to the top-level
 
 ```text
 frontend/
+├── packages/                       @ws/* npm workspaces (packages/*)
+│   ├── types/                      @ws/types — generated openapi.d.ts plus
+│   │                               hand-maintained SSEEvent / ApiErrorCode
+│   │                               and short-name aliases
+│   ├── api-client/                 @ws/api-client — createApiClient factory,
+│   │                               grouped endpoint client, ApiError
+│   ├── realtime/                   @ws/realtime — createEventStream (vanilla)
+│   │                               and @ws/realtime/react (useEventStream)
+│   └── ui/                         @ws/ui — ToastProvider, ConfirmDialog,
+│                                       ErrorBoundary
 ├── src/
-│   ├── api.ts                      Typed wrappers around every REST endpoint
-│   ├── types.ts                    Mirrors Pydantic schemas
-│   ├── useEventSource.ts           Connects to /api/workshops/events (SSE)
+│   ├── apiClient.ts                Module-level API client singleton
+│   │                               (getApiClient / setApiClient)
 │   ├── App.tsx                     Top-level shell, route switch, SSE fan-out
 │   ├── main.tsx                    React root, providers (StrictMode, ErrorBoundary,
 │   │                               ToastProvider, AuthProvider)
 │   ├── app/
-│   │   └── useRoute.ts             Tiny hash/location router
-│   ├── components/                 Shared UI: views, dialogs, toasts, error boundary
+│   │   └── useRoute.ts             Tiny history-based router
+│   ├── components/                 Views: list, detail, account, tickets, admin,
+│   │                               organizer, auth panel, reserve form, …
 │   ├── features/
 │   │   ├── auth/AuthContext.tsx    Session rehydration + sign-out
-│   │   ├── reservations/hooks/     useMyReservations (account dashboard)
+│   │   ├── reservations/hooks/     useMyReservations, useMyWaitlistEntries
 │   │   └── workshops/hooks/        useWorkshopList, useWorkshopDetail
 │   └── utils/                      formatters, logger
+├── e2e/run.mjs                     Playwright integration suite
 ├── vite.config.ts                  Dev server + /api proxy
 ├── nginx.conf                      Prod reverse proxy with security headers
-└── package.json                    React 18, Vite 6, Tailwind 4
+└── package.json                    npm workspaces; React 18, Vite 6, Tailwind 4
 ```
 
 The frontend has **no global store library**. React component state,
-three feature hooks (`useWorkshopList`, `useWorkshopDetail`,
-`useMyReservations`), and one React context (`AuthContext`) cover the
-whole app.
+four feature hooks (`useWorkshopList`, `useWorkshopDetail`,
+`useMyReservations`, `useMyWaitlistEntries`), and one React context
+(`AuthContext`) cover the whole app. Cross-cutting UI primitives
+(toasts, confirm dialog, error boundary) come from `@ws/ui`.
 
 ## How the Frontend Talks to the Backend
 
-All requests go through the `request` helper in
-[`src/api.ts`](./src/api.ts:77):
+All requests go through the typed client built by
+`createApiClient` in
+[`@ws/api-client`](./packages/api-client/src/index.ts):
 
 ```ts
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: "include",
-  });
-  if (!response.ok) throw await parseError(response);
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+import { createApiClient } from "@ws/api-client";
+
+const client = createApiClient();
+// Defaults: baseUrl "/api", credentials "include",
+// fetchImpl globalThis.fetch.
+
+const page = await client.workshops.listWorkshops({ state: "upcoming" });
+```
+
+The app holds exactly one client — a module-level singleton in
+[`src/apiClient.ts`](./src/apiClient.ts) — chosen over a React context
+so hooks call `getApiClient().<group>.<fn>(...)` at fetch time without
+a provider wrapping the tree:
+
+```ts
+import { createApiClient } from "@ws/api-client";
+import type { ApiClient } from "@ws/api-client";
+
+const defaultClient = createApiClient();
+let current: ApiClient = defaultClient;
+
+/** The shared client. Call at fetch time, not at module load. */
+export function getApiClient(): ApiClient {
+  return current;
+}
+
+/** Test hook: swap in a client built with a stubbed fetchImpl. */
+export function setApiClient(client: ApiClient): void {
+  current = client;
 }
 ```
 
 Key properties:
 
-- `API_BASE` is hard-coded to `"/api"`. The path is always relative, so
+- `baseUrl` defaults to `"/api"`. The path is always relative, so
   the same code works in dev (Vite proxies `/api`) and in prod (nginx
-  proxies `/api`).
+  proxies `/api`). Pass an absolute URL such as
+  `"http://localhost:8000/api"` to bypass the proxy.
 - `credentials: "include"` is explicit so the cookie is always attached.
   For same-origin requests the browser would send it anyway; the option
   is set to keep the contract obvious when the test harness sets a
   different host.
-- The helper parses the JSON body for 2xx, returns `undefined` for
-  `204 No Content`, and converts any failure into an [`ApiError`](./src/api.ts:36).
+- `fetchImpl` is injectable (`createApiClient({ fetchImpl })`), so tests
+  can stub the network without touching the component tree.
+- The client parses the JSON body for 2xx, returns `undefined` for
+  `204 No Content`, and converts any failure into an `ApiError` from
+  `@ws/api-client`.
 
 ### Endpoint wrappers
 
-`api.ts` exposes one named function per endpoint:
+`@ws/api-client` exposes one grouped client; call sites read
+`client.<group>.<fn>(...)`:
 
-| Function                       | HTTP                                       | Backend route                          |
-| ------------------------------ | ------------------------------------------ | -------------------------------------- |
-| `listWorkshops()`              | `GET`                                      | `/api/workshops`                       |
-| `getWorkshop(id)`              | `GET`                                      | `/api/workshops/{id}`                  |
-| `createWorkshop(...)`          | `POST`                                     | `/api/workshops`                       |
-| `deleteWorkshop(id)`           | `DELETE`                                   | `/api/workshops/{id}`                  |
-| `createReservation(...)`       | `POST` + `Idempotency-Key`                 | `/api/workshops/{id}/reservations`     |
-| `cancelReservation(id)`        | `DELETE`                                   | `/api/reservations/{id}`               |
-| `signup(...)` / `login(...)`   | `POST`                                     | `/api/auth/signup` \| `/api/auth/login`|
-| `logout()`                     | `POST`                                     | `/api/auth/logout`                     |
-| `getMe()`                      | `GET`                                      | `/api/auth/me`                         |
-| `listMyReservations()`         | `GET`                                      | `/api/reservations/me`                 |
+| Call                                                | HTTP                       | Backend route                           |
+| --------------------------------------------------- | -------------------------- | --------------------------------------- |
+| `client.auth.signup(...)` / `client.auth.login(...)`  | `POST`                     | `/api/auth/signup` \| `/api/auth/login` |
+| `client.auth.logout()`                              | `POST`                     | `/api/auth/logout`                      |
+| `client.auth.getMe()`                               | `GET`                      | `/api/auth/me`                          |
+| `client.workshops.listWorkshops(params?)`           | `GET`                      | `/api/workshops`                        |
+| `client.workshops.getWorkshop(id)`                  | `GET`                      | `/api/workshops/{id}`                   |
+| `client.workshops.createWorkshop(payload)`          | `POST`                     | `/api/workshops`                        |
+| `client.workshops.updateWorkshop(id, payload)`        | `PUT`                      | `/api/workshops/{id}`                   |
+| `client.workshops.publishWorkshop(id)`              | `POST`                     | `/api/workshops/{id}/publish`           |
+| `client.workshops.cancelWorkshop(id)`               | `POST`                     | `/api/workshops/{id}/cancel`            |
+| `client.workshops.deleteWorkshop(id)`               | `DELETE`                   | `/api/workshops/{id}`                   |
+| `client.workshops.getOrganizerStats()`              | `GET`                      | `/api/organizer/stats`                  |
+| `client.workshops.createReview(...)`                | `POST`                     | `/api/workshops/{id}/reviews`           |
+| `client.reservations.createReservation(...)`          | `POST` + `Idempotency-Key` | `/api/workshops/{id}/reservations`      |
+| `client.reservations.cancelReservation(id)`           | `DELETE`                   | `/api/reservations/{id}`                |
+| `client.reservations.getReservation(id)`              | `GET`                      | `/api/reservations/{id}`                |
+| `client.reservations.listMyReservations()`            | `GET`                      | `/api/reservations/me`                  |
+| `client.waitlist.joinWaitlist(workshopId)`          | `POST`                     | `/api/workshops/{id}/waitlist`          |
+| `client.waitlist.leaveWaitlist(entryId)`            | `DELETE`                   | `/api/waitlist/{entryId}`               |
+| `client.waitlist.listMyWaitlistEntries()`           | `GET`                      | `/api/waitlist/me`                      |
+| `client.organizations.createOrganization(payload)`  | `POST`                     | `/api/organizations`                    |
+| `client.organizations.followOrganization(id)`       | `POST`                     | `/api/organizations/{id}/follow`        |
+| `client.organizations.unfollowOrganization(id)`     | `DELETE`                   | `/api/organizations/{id}/follow`        |
 
-All wrappers live in [`src/api.ts`](./src/api.ts). There is intentionally
-no generic CRUD helper — each call site reads as one verb and one path.
+All wrappers live in [`@ws/api-client`](./packages/api-client/src/index.ts);
+the app reaches them through the `getApiClient()` singleton. There is
+intentionally no generic CRUD helper — each call site reads as one verb
+and one path.
 
 ## Auth, Sessions, and CSRF
 
@@ -139,11 +197,12 @@ explicit.
 ### `AuthContext` lifecycle
 
 [`AuthProvider`](./src/features/auth/AuthContext.tsx) rehydrates the
-session once on app boot:
+session once on app boot through the shared client:
 
 ```ts
 useEffect(() => {
-  getMe()
+  getApiClient()
+    .auth.getMe()
     .then((hydrated) => setUser(hydrated))
     .catch(() => setUser(null))
     .finally(() => setIsRestoring(false));
@@ -184,7 +243,7 @@ The full backend surface is listed in the top-level
   on every relevant SSE event for that workshop id.
 - `POST /api/workshops` and `DELETE /api/workshops/{id}` are admin-only
   and only reachable when the signed-in `User.is_admin` is `true`. The
-  `AccountView` exposes the controls; the backend re-checks the admin
+  `AdminView` exposes the controls; the backend re-checks the admin
   claim, so a forged client UI cannot bypass the gate.
 
 ### Reservations
@@ -201,31 +260,30 @@ The full backend surface is listed in the top-level
 Workshops are shared state — when one user reserves a seat, every
 other open tab should see the count drop immediately. The backend
 publishes a single global event stream at `/api/workshops/events`,
-backed by the in-process pub/sub in
-[`backend/src/realtime.py`](../backend/src/realtime.py). The frontend
-subscribes once, in `App.tsx`, and fans the events out.
+backed by the realtime bus in
+[`backend/libs/core/ws_core/realtime/`](../backend/libs/core/ws_core/realtime/)
+— an in-process pub/sub by default, with a Redis adapter selected
+by a non-empty `redis_url` setting for multi-replica deployments.
+The frontend subscribes once, in `App.tsx`, and fans the events
+out.
 
-### Hook: `useEventSource`
+### Hook: `useEventStream`
 
-[`useEventSource`](./src/useEventSource.ts) opens an `EventSource` on
-mount and tears it down on unmount:
+[`useEventStream`](./packages/realtime/src/react.ts) (the React
+binding of `@ws/realtime`, imported from `@ws/realtime/react`)
+opens an `EventSource` on mount and tears it down on unmount:
 
 ```ts
-useEffect(() => {
-  const source = new EventSource("/api/workshops/events");
-  source.onmessage = (message) => {
-    try {
-      const parsed = JSON.parse(message.data) as SSEEvent;
-      handlerRef.current(parsed);
-    } catch {
-      // Ignore malformed events; the next valid event will recover.
-    }
-  };
-  return () => {
-    source.close();
-  };
-}, []);
+import { useEventStream } from "@ws/realtime/react";
+
+useEventStream((event) => {
+  // filter on event.workshop_id / event.type
+});
 ```
+
+Under the hood the package's framework-agnostic
+`createEventStream(url)` (exported from `@ws/realtime`) owns the
+`EventSource`; the React binding adds the lifecycle:
 
 - The handler is stored in a ref so a new function identity on every
   render does not cause the connection to be torn down.
@@ -237,21 +295,38 @@ useEffect(() => {
 
 ### Event shape
 
-The shape lives in [`types.ts`](./src/types.ts):
+The shape lives in [`@ws/types`](./packages/types/src/index.ts)
+(hand-maintained — the SSE stream is not part of the OpenAPI
+document):
 
 ```ts
 export interface SSEEvent {
   workshop_id: string;
-  type: "reservation_created" | "reservation_cancelled" | "workshop_created" | "workshop_deleted";
+  type:
+    | "reservation_created"
+    | "reservation_cancelled"
+    | "workshop_created"
+    | "workshop_deleted"
+    | "workshop_updated"
+    | "workshop_published"
+    | "workshop_cancelled"
+    | "waitlist_joined"
+    | "waitlist_left"
+    | "waitlist_promoted"
+    | "waitlist_cancelled";
   available_spots?: number;
-  reservation?: { id: string; status: string; ... };
-  reservation_id?: string;
+  reservation?: {
+    status: string;
+  };
 }
 ```
 
-The public broadcast channel **intentionally omits attendee name and
-email** for `reservation_created`; only `id` and `status` are sent.
-Per-user details still come from `GET /api/workshops/{id}` after
+The public broadcast channel **intentionally omits attendee name,
+email, and any reservation identifier** — for `reservation_created`
+only the reservation `status` is sent. An id is a cancellation
+capability, and broadcasting one would hand every visitor a list of
+bookings to attack. Per-user details still come from
+`GET /api/workshops/{id}` and `GET /api/reservations/me` after
 authentication.
 
 ### Fan-out in `App.tsx`
@@ -291,60 +366,61 @@ const handleEvent = useCallback((event: SSEEvent) => {
 
 Network retries are unavoidable on mobile networks. To make
 "reservation submitted twice" impossible, the backend requires an
-`Idempotency-Key` header on `POST /api/workshops/{id}/reservations`:
+`Idempotency-Key` header on `POST /api/workshops/{id}/reservations`.
+The caller generates the key; the `@ws/api-client` wrapper
+attaches it as the header:
 
 ```ts
-export async function createReservation(
-  workshopId: string,
-  attendeeName: string,
-  attendeeEmail: string,
-  idempotencyKey: string,
-): Promise<Reservation> {
-  return request<Reservation>(`/workshops/${workshopId}/reservations`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey,
-    },
-    body: JSON.stringify({ attendee_name: attendeeName, attendee_email: attendeeEmail }),
-  });
-}
+// The form generates the key once and reuses it across
+// retries; the client sends it as the Idempotency-Key header.
+const idempotencyKey = useRef(crypto.randomUUID());
+
+const reservation = await getApiClient().reservations.createReservation(
+  workshopId,
+  user.full_name,
+  user.email,
+  idempotencyKey.current,
+);
 ```
 
 Conventions used by the call sites:
 
-- **Same key for retries.** The form generates the key once on submit
-  and reuses it across retries of the same submit.
-- **Fresh key only on explicit re-submit.** When the user clicks
-  "Reserve" again after seeing the result, the form generates a new
-  key.
+- **Same key for retries.** The form (`ReserveForm.tsx`) stores
+  the key in a `useRef` on first render and reuses it across
+  retries of the same submit — a re-render never rotates the key.
+- **Fresh key only on explicit re-submit.** The key is rotated
+  after a successful 201, so the next time the user clicks
+  "Reserve" starts a new logical request.
 - The backend stores the key in the `idempotency_keys` table and
-  replays the original 201 response on duplicate submissions. See
-  `backend/src/services/reservation_service.py` for the server-side
-  contract.
+  replays the original 201 response on duplicate submissions (the
+  partial unique index `uq_active_reservation` on
+  `(workshop_id, attendee_email)` is the race-free backstop). See
+  [`backend/libs/reservation/ws_reservation/services/reservation_service.py`](../backend/libs/reservation/ws_reservation/services/reservation_service.py)
+  for the server-side contract.
 
 ## Error Handling Conventions
 
-Every API failure is normalised into an `ApiError`:
+Every API failure is normalised into the `ApiError` class
+from [`@ws/api-client`](./packages/api-client/src/index.ts):
 
 ```ts
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: string,
-    message: string,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+import { ApiError } from "@ws/api-client";
+
+// ApiError extends Error and exposes:
+//   status: number  — the HTTP status
+//   code: string    — the backend's machine-readable error code
+//   message: string — the human-readable message
 ```
 
-`parseError` understands both backend error shapes:
+The client's `parseError` understands both backend error
+shapes:
 
-- `{"error": {"code": "...", "message": "..."}}` — the application's
-  own envelope, defined in `backend/src/exceptions.py`.
-- `{"detail": [...]}` — FastAPI's default Pydantic validation payload.
+- `{"error": {"code": "...", "message": "..."}}` — the
+  application's own envelope, defined by the `DomainError`
+  subclasses in
+  [`backend/libs/core/ws_core/errors/`](../backend/libs/core/ws_core/errors/).
+- `{"detail": [...]}` — FastAPI's default Pydantic validation
+  payload.
 
 Callers branch on `error.code` rather than HTTP status when they need
 specific UX (e.g. the workshop detail hook checks
@@ -357,9 +433,10 @@ if (requestError instanceof ApiError && requestError.code === "workshop_not_foun
 }
 ```
 
-A React `ErrorBoundary` wraps the whole tree in `main.tsx` and renders
-a "Something went wrong" panel for render-time exceptions, so network
-failures do not blank the page.
+A React `ErrorBoundary` from `@ws/ui` wraps the whole tree in
+`main.tsx` and renders a "Something went wrong" panel for
+render-time exceptions, so network failures do not blank the
+page.
 
 ## State Management Patterns
 
@@ -369,58 +446,89 @@ There are three knobs and they are explicit:
    UI flags. Each component owns its own `useState`.
 2. **Feature hooks.** A hook owns one resource and the operations on
    it. The hook returns data + error + the mutators; the view consumes
-   that without any other glue.
-   - [`useWorkshopList(refreshKey)`](./src/features/workshops/hooks/useWorkshopList.ts)
-     — fetches the list, sorts by `starts_at` ascending.
+   that without any other glue. Every hook calls
+   `getApiClient().<group>.<fn>(...)` at fetch time.
+   - [`useWorkshopList(refreshKey, filters)`](./src/features/workshops/hooks/useWorkshopList.ts)
+     — fetches the paginated catalogue (debounced search,
+     `loadMore`); the backend orders pages by `starts_at` ascending.
    - [`useWorkshopDetail(workshopId, liveEvent, userId, ...)`](./src/features/workshops/hooks/useWorkshopDetail.ts)
      — fetches one workshop, re-fetches on matching SSE event, exposes
      `cancel`.
    - [`useMyReservations()`](./src/features/reservations/hooks/useMyReservations.ts)
      — fetches the dashboard list, exposes `cancel` that updates the
      local row to `cancelled` instead of re-fetching.
+   - [`useMyWaitlistEntries()`](./src/features/reservations/hooks/useMyWaitlistEntries.ts)
+     — fetches the signed-in account's active waitlist places.
 3. **`AuthContext`.** Single shared user object plus `isRestoring` and
    `signOut`. Read with `useAuth()` from
    [`AuthContext.tsx`](./src/features/auth/AuthContext.tsx).
+
+Shared UI primitives — `ToastProvider` / `useToast`,
+`ConfirmDialog`, and `ErrorBoundary` — come from
+[`@ws/ui`](./packages/ui).
 
 There is no Redux, Zustand, or React Query. Hooks + context are enough
 for this surface area.
 
 ## Routing, Real-Time Wiring, and App Boot
 
-`main.tsx` mounts the tree in this order:
+`main.tsx` mounts the tree in this order (`ErrorBoundary` and
+`ToastProvider` come from `@ws/ui`; the boundary forwards
+render-time exceptions to the structured logger in
+`src/utils/logger.ts`):
 
 ```tsx
-<React.StrictMode>
-  <ErrorBoundary>
-    <ToastProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </ToastProvider>
-  </ErrorBoundary>
-</React.StrictMode>
+import { ErrorBoundary, ToastProvider } from "@ws/ui";
+
+ReactDOM.createRoot(rootElement).render(
+  <React.StrictMode>
+    <ErrorBoundary
+      onError={(error, errorInfo) =>
+        logger.error("React component boundary caught error", {
+          error,
+          errorInfo,
+        })
+      }
+    >
+      <ToastProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
+  </React.StrictMode>,
+);
 ```
 
 `App.tsx` then:
 
 1. Reads the route from [`useRoute()`](./src/app/useRoute.ts) (a tiny
    history-based router — no `react-router` dependency).
-2. Subscribes to the SSE stream once with `useEventSource`.
+2. Subscribes to the SSE stream once with `useEventStream`
+   (from `@ws/realtime/react`).
 3. While `isRestoring` is `true`, renders a skeleton instead of the
    list (so the workshop list never flashes its "Sign in" button for a
    signed-in user).
-4. Switches on `route.name`:
+4. Guards the signed-in routes: `account` and `tickets` send anonymous
+   visitors home with `?auth=sign-in`; `admin` additionally requires
+   `user.is_admin`; `organizer` requires the `organizer` (or `admin`)
+   platform role.
+5. Switches on `route.name`:
    - `home` → `WorkshopListView`, passing `spotOverrides` and a
      `refreshKey={catalogRevision}`.
    - `workshop` → `WorkshopDetailView`, passing `availableSpots` for
      that id, the latest `liveEvent`, and callbacks for
      `onSpotsChanged` / `onDeleted` / `onBack`.
-   - `account` → `AccountView` (only when `user` is set; otherwise
-     navigate home with `?auth=sign-in`).
-   - anything else → `NotFoundView`.
+   - `account` → `AccountView` and `tickets` → `TicketsView` (only
+     when `user` is set).
+   - `admin` → `AdminView` (only when `user.is_admin`).
+   - `organizer` → `OrganizerView` (only for the `organizer`/`admin`
+     role).
+   - `notFound` → `NotFoundView`; any other route falls through to
+     the home list.
 
-Document title is set per route in an effect so screen readers hear
-the 404 state without inspecting the URL.
+Document title is set per route in an effect so screen readers hear the
+404 state without inspecting the URL.
 
 ## Local Development and the Vite Proxy
 
@@ -469,7 +577,7 @@ In production the frontend is served by the nginx image defined in
 [`frontend/nginx.conf`](./nginx.conf) to:
 
 1. Serve `index.html` for any unknown path (`try_files $uri $uri/
-   /index.html`) so the client-side router works on hard reload.
+/index.html`) so the client-side router works on hard reload.
 2. Proxy `/api/workshops`, `/api/workshops/`, and `/api/` to the
    `backend` service on port 8000.
 3. Proxy `/health` to the backend for the docker-compose health check.
@@ -483,7 +591,7 @@ In production the frontend is served by the nginx image defined in
    - `X-Content-Type-Options: nosniff` — stops MIME sniffing on static
      assets.
    - `Permissions-Policy: geolocation=(), microphone=(), camera=(),
-     payment=()` — opt out of unused powerful APIs.
+payment=()` — opt out of unused powerful APIs.
 
 The exact `location = /api/workshops` block is needed because nginx
 otherwise redirects that path to a trailing slash, which drops the
@@ -491,28 +599,48 @@ frontend port and breaks the request.
 
 ## Type Synchronization with the Backend
 
-There is **no codegen**. Types are hand-written in [`types.ts`](./src/types.ts)
-to match `backend/src/schemas/`. The doc comment in `types.ts` spells
-out the contract:
+Types **are generated**. [`@ws/types`](./packages/types) runs
+`openapi-typescript` against the backend's OpenAPI document:
 
-> The shapes here mirror the Pydantic schemas in `backend/src/schemas/`.
-> They are intentionally hand-written rather than generated: the project
-> is small enough that a single source of truth in TS is fine, and a
-> build-time codegen step is avoided.
->
-> If a backend field changes, update the matching interface here in
-> the same commit so the two stay in lockstep.
+```sh
+# With the backend running on localhost:8000
+npm run generate:types
+```
+
+That fetches `http://localhost:8000/openapi.json` and writes
+`packages/types/src/openapi.d.ts` (the script lives in
+`packages/types/package.json`; without a server you can generate
+from a saved schema:
+`openapi-typescript /path/to/openapi.json -o src/openapi.d.ts`).
+
+The package has a two-part layout:
+
+| File               | Origin                                                                                               | Edit?                            |
+| ------------------ | ---------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `src/openapi.d.ts` | Generated by `openapi-typescript` from the backend's OpenAPI document                                | **Never hand-edit** — regenerate |
+| `src/index.ts`     | Hand-written entry: re-exports the generated schemas under the app's short names (`Workshop`, `Reservation`, …) plus the hand-maintained `SSEEvent` and `ApiErrorCode` | Yes                              |
+
+The generated names carry the backend's `*Response` suffix
+(`WorkshopResponse`, …); the aliases in `src/index.ts` expose
+them under the short names the app has always used.
 
 When you change a backend schema:
 
-1. Update the matching `*Schema` in `backend/src/schemas/`.
-2. Update the matching `interface` in `frontend/src/types.ts`.
-3. Touch the call sites in `frontend/src/api.ts` and the hooks.
+1. Update the matching Pydantic schema in
+   `backend/libs/reservation/ws_reservation/schemas/`.
+2. Regenerate: `npm run generate:types` (with the backend up).
+3. Update the hand-maintained types in
+   `packages/types/src/index.ts` (`SSEEvent`, `ApiErrorCode`) in
+   the same commit when the change adds an event type or an
+   error code, and touch the call sites in `frontend/src/` that
+   consume the new shape.
 
 ## Testing the Integration
 
-- **Unit / type-level.** `npm run build` runs `tsc -b` against the whole
-  project, so a schema drift will fail the build.
+- **Unit / type-level.** `npm run build` builds the four
+  workspaces (`@ws/types`, `@ws/api-client`, `@ws/realtime`,
+  `@ws/ui`), then runs `tsc -b && vite build` against the app,
+  so a schema drift will fail the build.
 - **End-to-end.** [`frontend/e2e/run.mjs`](./e2e/run.mjs) drives the
   app against a live backend (Playwright). It covers auth, workshop
   listing, reservation creation, capacity enforcement, cancellation,
@@ -524,16 +652,16 @@ When you change a backend schema:
 
 ## Troubleshooting
 
-| Symptom                                                 | Likely cause                                                                                              |
-| ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| "Sign in" button flashes on first load for a signed-in user | `isRestoring` not honoured — check that `App.tsx` still renders the `isRestoring` skeleton early.       |
-| Cookie missing in `fetch` calls from tests               | `credentials: "include"` was removed from `request()`; restore it.                                       |
-| SSE events never arrive                                  | nginx `proxy_buffering off; proxy_cache off; proxy_read_timeout 86400s;` missing on `/api/workshops/` — the connection times out at 60s without it. |
-| 401 on every call                                       | Cookie not set: confirm `Set-Cookie` is httpOnly + `SameSite=Lax` + `Path=/`. Cross-origin POSTs need `Secure` and explicit CORS. |
-| Capacity counts out of sync                              | SSE stream broken or a hook ignored the `liveEvent`; check the browser console for connection drops.     |
-| Idempotency-Key rejected                                | Key reused across distinct submissions; generate a new one when the user clicks "Reserve" again.          |
-| `workshop_not_found` mid-flow                           | Expected: an admin deleted the workshop. The detail hook catches the code and navigates home.            |
-| `tsc` fails after a backend change                      | Schema drift. Update `types.ts` (and any consumer) before re-running the build.                          |
+| Symptom                                                     | Likely cause                                                                                                                                        |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "Sign in" button flashes on first load for a signed-in user | `isRestoring` not honoured — check that `App.tsx` still renders the `isRestoring` skeleton early.                                                   |
+| Cookie missing in `fetch` calls from tests                  | `credentials: "include"` was removed from the `request` helper in `@ws/api-client`; restore it.                                                       |
+| SSE events never arrive                                     | nginx `proxy_buffering off; proxy_cache off; proxy_read_timeout 86400s;` missing on `/api/workshops/` — the connection times out at 60s without it. |
+| 401 on every call                                           | Cookie not set: confirm `Set-Cookie` is httpOnly + `SameSite=Lax` + `Path=/`. Cross-origin POSTs need `Secure` and explicit CORS.                   |
+| Capacity counts out of sync                                 | SSE stream broken or a hook ignored the `liveEvent`; check the browser console for connection drops.                                                |
+| Idempotency-Key rejected                                    | Key reused across distinct submissions; generate a new one when the user clicks "Reserve" again.                                                    |
+| `workshop_not_found` mid-flow                               | Expected: an admin deleted the workshop. The detail hook catches the code and navigates home.                                                       |
+| `tsc` fails after a backend change                          | Schema drift. Regenerate `@ws/types` (`npm run generate:types`, backend up) and update the hand-maintained types (and any consumer) before re-running the build. |
 
 For broader stack issues (database, migrations, environment variables),
 see the top-level [README.md](../README.md).

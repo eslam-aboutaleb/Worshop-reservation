@@ -268,30 +268,42 @@ schema changes you have applied manually:
 ```bash
 docker compose exec db psql \
   -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  -c "TRUNCATE TABLE reservations, workshops, users, idempotency_keys, alembic_version RESTART IDENTITY CASCADE;"
+  -c "TRUNCATE TABLE reservations, workshops, users, idempotency_keys, organizations, organization_memberships, organization_follows, reviews, waitlist_entries, alembic_version RESTART IDENTITY CASCADE;"
 ```
 
-The table names match the SQLAlchemy models in `backend/src/models/`. If you
+The table names match the SQLAlchemy models in `backend/libs/*/ws_*/models/`. If you
 have added new tables, extend the list. Re-seed afterwards by restarting the
 backend (`docker compose restart backend` — its entrypoint runs
 `python -m src.seed` after migrations).
 
 ## Project Structure
 
+The backend is a monorepo of two extracted packages plus the
+application that composes them (see `backend/pyproject.toml`;
+both packages are installed editable and imported by their
+`ws_*` distribution names):
+
 ```text
-backend/src/api/routers/   HTTP endpoints grouped by resource (workshops, reservations, users)
-backend/src/services/      Reservation and workshop workflows
-backend/src/services/*_queries.py  Read-only database queries
-backend/src/models/        SQLAlchemy entities (user, workshop, reservation, idempotency_key)
-backend/src/schemas/       Pydantic request and response models
-backend/src/auth.py        JWT issuance, password hashing, admin gating
-backend/src/realtime.py    In-process pub/sub used by the SSE stream
-backend/src/configuration/ Settings, database engine, structured logging
-backend/migrations/        Alembic migrations
-frontend/src/              React and TypeScript UI
-frontend/src/components/   Shared UI components (views, dialogs, toasts)
-frontend/src/features/     Feature-scoped modules (auth, reservations, workshops)
-frontend/src/app/          App-level hooks (routing helpers)
+backend/libs/core/ws_core/             Domain-agnostic toolkit: auth (Argon2id,
+                                       JWT, session cookie, rate limiting), DB
+                                       engine, error registry, event bus port,
+                                       realtime (in-process + Redis) adapters,
+                                       app factory
+backend/libs/reservation/ws_reservation/  The reservation domain as a plugin:
+                                       models, schemas, services, routers, and
+                                       the organizer-platform auth gate
+backend/src/                           Composition root: settings, the composed
+                                       app, seed
+backend/migrations/                    Alembic migrations
+frontend/src/                          React and TypeScript UI
+frontend/src/components/               Shared UI components (views, dialogs)
+frontend/src/features/                 Feature-scoped modules (auth, reservations,
+                                       workshops)
+frontend/packages/types/               @ws/types — generated API types + SSE
+                                       event / error code types
+frontend/packages/api-client/          @ws/api-client — typed fetch wrapper
+frontend/packages/realtime/            @ws/realtime — EventSource hook (SSE)
+frontend/packages/ui/                  @ws/ui — shared React UI components
 ```
 
 ## Tests
@@ -318,17 +330,15 @@ npm install
 npm run build
 ```
 
-## Regenerate the Dummy Password Hash
+## Dummy Password Hash
 
-`_DUMMY_PASSWORD_HASH` mitigates basic timing attacks on unknown-email login attempts. Regenerate it if the Argon2id cost parameters in `backend/src/auth.py` change:
-
-```bash
-cd backend
-PYTHONPATH=. uv run python -c \
-'import secrets; from src.auth import hash_password; print(hash_password(secrets.token_urlsafe(32)))'
-```
-
-Replace the existing value of `_DUMMY_PASSWORD_HASH` in `backend/src/auth.py` with the printed `$argon2id$...` value.
+`DUMMY_PASSWORD_HASH` (in `backend/libs/core/ws_core/auth/password.py`)
+mitigates basic timing attacks on unknown-email login attempts: the login
+path hashes a dummy password with the same Argon2id hasher when the
+account does not exist, so response times do not reveal whether an email
+is registered. The dummy hash is derived from the hasher at import time,
+so it always matches the Argon2id cost parameters in that module — no
+manual regeneration step is needed when the parameters change.
 
 ## API Routes
 
@@ -337,15 +347,69 @@ httpOnly cookie set by `signup` / `login`; the same JWT is also returned in the
 response body for non-browser clients, which send it as `Authorization: Bearer
 <token>`.
 
-- `GET    /api/workshops`
-- `GET    /api/workshops/{id}`
-- `POST   /api/workshops` (admin)
-- `DELETE /api/workshops/{id}` (admin, only when no active reservations exist)
-- `POST   /api/workshops/{id}/reservations` (requires `Idempotency-Key` header)
-- `DELETE /api/reservations/{id}`
-- `GET    /api/reservations/me`
+Auth:
+
 - `POST   /api/auth/signup`
 - `POST   /api/auth/login`
 - `POST   /api/auth/logout`
 - `GET    /api/auth/me`
-- `GET    /api/workshops/events` (Server-Sent Events stream)
+
+Workshops:
+
+- `GET    /api/workshops` (public catalogue; `?q=`, `?category=`, `?state=`, `?following=true`)
+- `GET    /api/workshops/{id}`
+- `GET    /api/workshops/events` (SSE stream of reservation/workshop events)
+- `POST   /api/workshops` (admin or organization member)
+- `PUT    /api/workshops/{id}` (admin or organization member)
+- `POST   /api/workshops/{id}/publish` (admin or organization member)
+- `POST   /api/workshops/{id}/cancel` (admin or organization member)
+- `DELETE /api/workshops/{id}` (admin or organization member, only when no active reservations exist)
+- `POST   /api/workshops/{id}/reservations` (requires `Idempotency-Key` header)
+- `POST   /api/workshops/{id}/waitlist` (join the waitlist when the workshop is full)
+- `POST   /api/workshops/{id}/reviews` (leave a review after attending)
+
+Reservations:
+
+- `GET    /api/reservations/{id}`
+- `DELETE /api/reservations/{id}`
+- `GET    /api/reservations/me`
+- `GET    /api/waitlist/me`
+- `DELETE /api/waitlist/{waitlist_entry_id}`
+
+Organizations (roadmap 2.1+):
+
+- `POST   /api/organizations` (creates the org; the caller becomes owner + organizer)
+- `POST   /api/organizations/{id}/follow`
+- `DELETE /api/organizations/{id}/follow`
+- `GET    /api/organizer/stats` (dashboard for organizers: their organizations, workshops, upcoming reservations)
+
+## Trade-offs & Non-Goals
+
+- **SSE is in-process only.** The realtime bus broadcasts within a
+  single backend process. Behind a load balancer with multiple
+  replicas, only the replica that handled the create/cancel
+  broadcasts. The Redis adapter (`ws_core.realtime.redis`) is the
+  drop-in replacement when `REDIS_URL` is set.
+- **Capacity is enforced by row locking, not a CHECK constraint.**
+  `SELECT ... FOR UPDATE` on the workshop row plus an active-reservation
+  count inside the same transaction is the single source of truth; a
+  partial unique index on `(workshop_id, attendee_email) WHERE
+  status='active'` is the second line of defense.
+- **Idempotency is two-layered.** The required `Idempotency-Key`
+  header is stored in `idempotency_keys` scoped to `(key,
+  workshop_id)` for replay across processes; the partial unique index
+  catches a client that lies and changes the email on retry.
+- **Tests target the concurrency-critical paths** against a real
+  PostgreSQL 16 (the partial index and `FOR UPDATE` semantics are not
+  reproducible on SQLite).
+- **Intentional UI minimalism:** no router, no state library — one
+  page with list / detail / reserve states.
+
+## What I'd Do Next
+
+- Redis pub/sub for SSE across replicas (adapter already exists).
+- Cancellation TTL so abandoned seats return to the pool.
+- E2E Playwright suite over the Docker stack.
+- CI running ruff + prettier + pytest + hadolint on every push.
+- Admin management UI for the full workshop lifecycle (draft /
+  publish / cancel) beyond the current account-screen tools.

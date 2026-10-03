@@ -41,6 +41,8 @@ frontend/dist/
 *.bak
 backend/coverage.txt
 backend/coverage.xml
+backend/coverage.json
+*,cover
 
 # Local dev-data volume mounted by docker-compose.dev.yml.
 .dev-data/
