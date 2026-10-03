@@ -59,7 +59,9 @@ def upgrade() -> None:
             sa.text("UPDATE reservations SET booking_code = :code WHERE id = :id"),
             {"code": code, "id": reservation_id},
         )
-    op.alter_column("reservations", "booking_code", existing_type=sa.String(length=12), nullable=False)
+    op.alter_column(
+        "reservations", "booking_code", existing_type=sa.String(length=12), nullable=False
+    )
     op.create_index(
         "uq_reservations_booking_code",
         "reservations",

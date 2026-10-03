@@ -59,9 +59,7 @@ class RedisRealtimeBus(RealtimeBus):
         """The id this replica filters its own messages by."""
         return self._publisher_id
 
-    async def publish(
-        self, workshop_id: uuid.UUID, event: dict[str, Any]
-    ) -> None:
+    async def publish(self, workshop_id: uuid.UUID, event: dict[str, Any]) -> None:
         """Deliver locally, then broadcast to other replicas.
 
         Args:
@@ -114,9 +112,7 @@ class RedisRealtimeBus(RealtimeBus):
         """
         await self._local.unsubscribe_global(queue)
 
-    async def unsubscribe(
-        self, workshop_id: uuid.UUID, queue: EventQueue
-    ) -> None:
+    async def unsubscribe(self, workshop_id: uuid.UUID, queue: EventQueue) -> None:
         """Remove a workshop-scoped subscriber.
 
         Args:
@@ -163,13 +159,23 @@ class RedisRealtimeBus(RealtimeBus):
             async for message in pubsub.listen():
                 if message["type"] != "message":
                     continue
-                data = json.loads(message["data"])
-                if data["publisher_id"] == self._publisher_id:
-                    continue
-                await self._local.publish(
-                    uuid.UUID(data["workshop_id"]),
-                    data["event"],
-                )
+                try:
+                    data = json.loads(message["data"])
+                    if data["publisher_id"] == self._publisher_id:
+                        continue
+                    await self._local.publish(
+                        uuid.UUID(data["workshop_id"]),
+                        data["event"],
+                    )
+                except (json.JSONDecodeError, KeyError, ValueError, TypeError):
+                    # A malformed cross-replica message must not
+                    # kill the listener: every other replica's
+                    # events would stop being delivered. Log and
+                    # keep consuming.
+                    logger.warning(
+                        "realtime.redis_malformed_message",
+                        error="malformed pub/sub payload",
+                    )
         except asyncio.CancelledError:
             await pubsub.unsubscribe()
             raise

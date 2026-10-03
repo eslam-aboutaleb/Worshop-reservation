@@ -33,9 +33,7 @@ class RealtimeBus(ABC):
     """Port for workshop-event delivery to connected browsers."""
 
     @abstractmethod
-    async def publish(
-        self, workshop_id: uuid.UUID, event: dict[str, Any]
-    ) -> None:
+    async def publish(self, workshop_id: uuid.UUID, event: dict[str, Any]) -> None:
         """Deliver ``event`` to every subscriber of ``workshop_id``.
 
         Slow consumers (full queues) are dropped rather than
@@ -75,9 +73,7 @@ class RealtimeBus(ABC):
         """
 
     @abstractmethod
-    async def unsubscribe(
-        self, workshop_id: uuid.UUID, queue: EventQueue
-    ) -> None:
+    async def unsubscribe(self, workshop_id: uuid.UUID, queue: EventQueue) -> None:
         """Remove a workshop-scoped subscriber.
 
         Args:

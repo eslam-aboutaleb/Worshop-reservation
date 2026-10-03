@@ -55,10 +55,11 @@ class Settings(BaseSettings):
     # Payments (plan 4.2). ``"none"`` is the no-op default; the
     # provider factory keys off this value.
     payment_provider: str = Field(default="none", pattern="^(none|stripe|fawry)$")
-    # The bearer token is delivered as an httpOnly cookie. Set to
-    # ``true`` in development over plain HTTP; the default ``false``
-    # requires HTTPS in production.
-    cookie_secure: bool = False
+    # The bearer token is delivered as an httpOnly cookie.
+    # Secure by default: the cookie only travels over HTTPS.
+    # Deployments that serve plain HTTP (e.g. local dev)
+    # must explicitly set ``COOKIE_SECURE=false``.
+    cookie_secure: bool = True
     cookie_samesite: str = Field(default="lax", pattern="^(lax|strict|none)$")
     cookie_name: str = "workshop_access_token"
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")

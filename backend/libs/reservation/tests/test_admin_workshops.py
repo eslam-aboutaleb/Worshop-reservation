@@ -1,11 +1,12 @@
 """Coverage for environment-configured workshop administration."""
 
+import os
 import uuid
 
 import pytest
 from httpx import AsyncClient
 
-ADMIN_EMAIL = "eslamehababoutaleb@gmail.com"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = "Password123!"
 
 # Ids created by the running test, removed again by the
@@ -153,9 +154,7 @@ async def test_admin_list_includes_cancelled_sessions(
     workshop_id = created.json()["id"]
     _CREATED_WORKSHOPS.append(workshop_id)
 
-    cancel = await client.post(
-        f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token)
-    )
+    cancel = await client.post(f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token))
     assert cancel.status_code == 200, cancel.text
 
     admin_catalogue = await client.get(
@@ -170,9 +169,7 @@ async def test_admin_list_includes_cancelled_sessions(
     client.cookies.clear()
     public_catalogue = await client.get("/api/workshops", params={"state": "all"})
     assert public_catalogue.status_code == 200
-    assert not any(
-        item["id"] == workshop_id for item in public_catalogue.json()["items"]
-    )
+    assert not any(item["id"] == workshop_id for item in public_catalogue.json()["items"])
 
 
 @pytest.mark.asyncio
@@ -194,21 +191,15 @@ async def test_admin_can_read_cancelled_workshop_detail(
     workshop_id = created.json()["id"]
     _CREATED_WORKSHOPS.append(workshop_id)
 
-    cancel = await client.post(
-        f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token)
-    )
+    cancel = await client.post(f"/api/workshops/{workshop_id}/cancel", headers=_auth(admin_token))
     assert cancel.status_code == 200, cancel.text
 
-    admin_detail = await client.get(
-        f"/api/workshops/{workshop_id}", headers=_auth(admin_token)
-    )
+    admin_detail = await client.get(f"/api/workshops/{workshop_id}", headers=_auth(admin_token))
     assert admin_detail.status_code == 200, admin_detail.text
     assert admin_detail.json()["status"] == "cancelled"
 
     member_token = await _signup(client, f"member_{uuid.uuid4()}@example.com")
-    member_detail = await client.get(
-        f"/api/workshops/{workshop_id}", headers=_auth(member_token)
-    )
+    member_detail = await client.get(f"/api/workshops/{workshop_id}", headers=_auth(member_token))
     assert member_detail.status_code == 404
 
 
@@ -221,9 +212,7 @@ async def cleanup_workshops(session_factory):
     if _CREATED_WORKSHOPS:
         async with session_factory() as s:
             for workshop_id in _CREATED_WORKSHOPS:
-                await s.execute(
-                    text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
-                )
+                await s.execute(text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id})
             await s.commit()
         _CREATED_WORKSHOPS.clear()
 

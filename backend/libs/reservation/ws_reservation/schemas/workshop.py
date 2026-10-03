@@ -134,9 +134,7 @@ class WorkshopCreate(BaseModel):
             if starts_at.tzinfo is None:
                 starts_at = starts_at.replace(tzinfo=UTC)
             if value.astimezone(UTC) > starts_at.astimezone(UTC):
-                raise ValueError(
-                    "registration_closes_at must not be after starts_at"
-                )
+                raise ValueError("registration_closes_at must not be after starts_at")
         return value
 
 

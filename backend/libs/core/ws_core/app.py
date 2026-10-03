@@ -35,8 +35,9 @@ from collections.abc import Iterable
 from typing import Protocol
 
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from ws_core.auth.routers import router as auth_router
 from ws_core.config import CoreSettings
@@ -85,6 +86,65 @@ _CORE_ERRORS = [
     InvalidCredentialsError,
     RateLimitedError,
 ]
+
+
+class _AccessLogMiddleware:
+    """Pure ASGI access-log middleware.
+
+    Wraps the downstream app directly (awaited) instead
+    of going through ``BaseHTTPMiddleware``, whose
+    ``call_next`` runs the request handler inside a
+    separate anyio task. Avoiding that task both cuts
+    per-request overhead and keeps the handler on the
+    caller's coroutine stack, which also keeps the
+    request path observable to coverage tracers.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.decode("latin-1"): value.decode("latin-1")
+            for key, value in scope.get("headers", [])
+        }
+        structlog.contextvars.clear_contextvars()
+        structlog.contextvars.bind_contextvars(
+            request_id=headers.get("x-request-id", str(uuid.uuid4())),
+            method=scope["method"],
+            path=scope["path"],
+        )
+
+        start_time = time.perf_counter()
+        access_logger = structlog.stdlib.get_logger("api.access")
+        status_code = {"value": 500}
+
+        async def _send(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                status_code["value"] = message["status"]
+            await send(message)
+
+        try:
+            await self.app(scope, receive, _send)
+            access_logger.info(
+                "request_completed",
+                status_code=status_code["value"],
+                duration_ms=round(
+                    (time.perf_counter() - start_time) * 1000, 2
+                ),
+            )
+        except Exception:
+            access_logger.exception(
+                "request_failed",
+                duration_ms=round(
+                    (time.perf_counter() - start_time) * 1000, 2
+                ),
+            )
+            raise
 
 
 def create_app(
@@ -143,35 +203,9 @@ def create_app(
         openapi_url="/openapi.json",
     )
 
-    @app.middleware("http")
-    async def logging_middleware(request: Request, call_next):
-        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-        structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(
-            request_id=request_id,
-            method=request.method,
-            path=request.url.path,
-        )
-
-        start_time = time.perf_counter()
-        logger = structlog.stdlib.get_logger("api.access")
-
-        try:
-            response = await call_next(request)
-            process_time = time.perf_counter() - start_time
-            logger.info(
-                "request_completed",
-                status_code=response.status_code,
-                duration_ms=round(process_time * 1000, 2),
-            )
-            return response
-        except Exception:
-            process_time = time.perf_counter() - start_time
-            logger.exception(
-                "request_failed",
-                duration_ms=round(process_time * 1000, 2),
-            )
-            raise
+    # Access logging as a pure ASGI middleware (see
+    # _AccessLogMiddleware for why not BaseHTTPMiddleware).
+    app.add_middleware(_AccessLogMiddleware)
 
     app.add_middleware(
         CORSMiddleware,

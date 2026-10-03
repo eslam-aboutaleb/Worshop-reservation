@@ -54,9 +54,7 @@ class DomainEvent:
 
     type: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
-    occurred_at: datetime = field(
-        default_factory=lambda: datetime.now(UTC)
-    )
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 EventHandler = Callable[[DomainEvent], Awaitable[None]]

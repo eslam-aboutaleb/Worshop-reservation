@@ -49,9 +49,7 @@ class InProcessRealtimeBus(RealtimeBus):
     """Single-replica bus with ``asyncio.Queue`` subscribers."""
 
     def __init__(self) -> None:
-        self._workshop_subscribers: dict[
-            uuid.UUID, set[EventQueue]
-        ] = defaultdict(set)
+        self._workshop_subscribers: dict[uuid.UUID, set[EventQueue]] = defaultdict(set)
         self._global_subscribers: set[EventQueue] = set()
         # A threading.Lock would also work (the critical
         # sections are synchronous), but every access here
@@ -95,9 +93,7 @@ class InProcessRealtimeBus(RealtimeBus):
             self._global_subscribers.add(queue)
         return queue
 
-    async def unsubscribe(
-        self, workshop_id: uuid.UUID, queue: EventQueue
-    ) -> None:
+    async def unsubscribe(self, workshop_id: uuid.UUID, queue: EventQueue) -> None:
         """Remove a workshop-scoped subscriber.
 
         Args:
@@ -120,9 +116,7 @@ class InProcessRealtimeBus(RealtimeBus):
         async with self._lock:
             self._global_subscribers.discard(queue)
 
-    async def publish(
-        self, workshop_id: uuid.UUID, event: dict[str, Any]
-    ) -> None:
+    async def publish(self, workshop_id: uuid.UUID, event: dict[str, Any]) -> None:
         """Broadcast an event to workshop-scoped and global subscribers.
 
         Slow consumers (full queues) are dropped rather than blocking
@@ -135,9 +129,7 @@ class InProcessRealtimeBus(RealtimeBus):
             event: JSON-serializable payload to deliver.
         """
         async with self._lock:
-            targets: list[EventQueue] = list(
-                self._workshop_subscribers.get(workshop_id, ())
-            )
+            targets: list[EventQueue] = list(self._workshop_subscribers.get(workshop_id, ()))
             targets.extend(self._global_subscribers)
         for queue in targets:
             try:

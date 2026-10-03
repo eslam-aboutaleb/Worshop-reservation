@@ -182,9 +182,7 @@ def create_router(container: Container) -> APIRouter:
             ReservationNotFoundError: 404 if the reservation does not
                 exist or is owned by another account.
         """
-        reservation = await reservation_service.get_reservation(
-            session, reservation_id, user
-        )
+        reservation = await reservation_service.get_reservation(session, reservation_id, user)
         return ReservationResponse.model_validate(reservation)
 
     @router.post(

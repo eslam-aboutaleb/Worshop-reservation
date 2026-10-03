@@ -50,9 +50,7 @@ def upgrade() -> None:
             name="fk_organization_follows_organization_id",
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint(
-            "user_id", "organization_id", name="pk_organization_follows"
-        ),
+        sa.PrimaryKeyConstraint("user_id", "organization_id", name="pk_organization_follows"),
     )
 
 

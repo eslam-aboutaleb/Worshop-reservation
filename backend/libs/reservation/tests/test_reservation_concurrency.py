@@ -12,10 +12,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from ws_core.auth import hash_password
 from ws_core.auth.models import User
 from ws_core.events import EventBus
-
-from ws_core.auth import hash_password
 from ws_reservation.models.idempotency_key import IdempotencyKey
 from ws_reservation.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
 from ws_reservation.schemas.reservation import ReservationCreate
@@ -50,7 +49,9 @@ async def _make_user(email: str) -> User:
 
 
 @pytest.mark.asyncio
-async def test_concurrent_reservations_yield_exactly_one_success(workshop, event_bus: EventBus) -> None:
+async def test_concurrent_reservations_yield_exactly_one_success(
+    workshop, event_bus: EventBus
+) -> None:
     """Capacity=1, 50 concurrent reserves → exactly one 201, 49 409s, 1 row."""
     results: list[tuple[int, object]] = []
     accounts = [await _make_user(f"user{idx}_{uuid.uuid4().hex}@example.com") for idx in range(50)]
@@ -135,7 +136,9 @@ async def test_idempotent_replay_returns_same_reservation(workshop, event_bus: E
 
 
 @pytest.mark.asyncio
-async def test_concurrent_same_key_replays_when_first_request_fills_workshop(workshop, event_bus: EventBus) -> None:
+async def test_concurrent_same_key_replays_when_first_request_fills_workshop(
+    workshop, event_bus: EventBus
+) -> None:
     """A concurrent retry must replay even after the first request uses the last seat."""
     key = str(uuid.uuid4())
     barrier = asyncio.Barrier(2)
@@ -213,15 +216,21 @@ async def test_cancel_is_idempotent(workshop, event_bus: EventBus) -> None:
             user=user,
             event_bus=event_bus,
         )
-        first_cancel = await reservation_service.cancel_reservation(session, created.id, user, event_bus=event_bus)
-        second_cancel = await reservation_service.cancel_reservation(session, created.id, user, event_bus=event_bus)
+        first_cancel = await reservation_service.cancel_reservation(
+            session, created.id, user, event_bus=event_bus
+        )
+        second_cancel = await reservation_service.cancel_reservation(
+            session, created.id, user, event_bus=event_bus
+        )
     assert first_cancel.status == "cancelled"
     assert second_cancel.status == "cancelled"
     assert second_cancel.cancelled_at is not None
 
 
 @pytest.mark.asyncio
-async def test_reservation_mirrors_the_account_not_the_request_body(workshop, event_bus: EventBus) -> None:
+async def test_reservation_mirrors_the_account_not_the_request_body(
+    workshop, event_bus: EventBus
+) -> None:
     """The stored attendee identity is the account's, never the body's.
 
     The duplicate-active rule is keyed on the account email rather

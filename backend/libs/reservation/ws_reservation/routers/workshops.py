@@ -422,9 +422,7 @@ def create_router(container: Container) -> APIRouter:
             ReviewAlreadyExistsError: 409 if the caller already
                 reviewed this workshop.
         """
-        return await review_service.create_review(
-            session, workshop_id, user, payload
-        )
+        return await review_service.create_review(session, workshop_id, user, payload)
 
     @router.delete("/{workshop_id}", status_code=status.HTTP_204_NO_CONTENT)
     async def delete_workshop(
@@ -433,9 +431,7 @@ def create_router(container: Container) -> APIRouter:
         user: Annotated[User, Depends(get_current_organizer)],
     ) -> Response:
         """Delete an unbooked workshop session as an administrator or organization member."""
-        await workshop_service.delete_workshop(
-            session, workshop_id, event_bus=container.event_bus
-        )
+        await workshop_service.delete_workshop(session, workshop_id, event_bus=container.event_bus)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return router

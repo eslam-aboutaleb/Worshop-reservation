@@ -28,16 +28,19 @@ os.environ.setdefault(
     "AUTH_SECRET_KEY",
     "test-secret-key-at-least-32-characters-long-for-tests",
 )
-os.environ.setdefault("ADMIN_EMAIL", "eslamehababoutaleb@gmail.com")
+os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
+# The test stack runs on plain HTTP, so the session
+# cookie must not carry the Secure attribute.
+os.environ.setdefault("COOKIE_SECURE", "false")
 
 from ws_core.db.engine import get_db  # noqa: E402
 from ws_core.realtime import (  # noqa: E402
     InProcessRealtimeBus,
     set_realtime_bus,
 )
+from ws_reservation.models import Workshop  # noqa: E402
 
 from src.main import app  # noqa: E402
-from ws_reservation.models import Workshop  # noqa: E402
 
 _engine = create_async_engine(os.environ["DATABASE_URL"], echo=False, poolclass=NullPool)
 _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
@@ -161,8 +164,6 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
             yield ac
     finally:
         app.dependency_overrides.clear()
-
-
 
 
 async def api_signup(

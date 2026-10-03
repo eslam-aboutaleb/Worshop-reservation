@@ -26,7 +26,9 @@ async def test_list_includes_new_workshop(client: AsyncClient, workshop_id: str)
 
 
 @pytest.mark.asyncio
-async def test_list_reflects_reservations(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_list_reflects_reservations(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """available_spots in the list view decrements as reservations are made."""
     for i in range(2):
         token, _ = await api_signup()
@@ -43,7 +45,9 @@ async def test_list_reflects_reservations(client: AsyncClient, workshop_id: str,
 
 
 @pytest.mark.asyncio
-async def test_detail_returns_full_payload(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_detail_returns_full_payload(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """The detail endpoint returns the workshop, available spots, and reservations."""
     token, _ = await api_signup()
     await client.post(

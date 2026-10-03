@@ -56,9 +56,7 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_reviews"),
-        sa.UniqueConstraint(
-            "workshop_id", "user_id", name="uq_reviews_workshop_user"
-        ),
+        sa.UniqueConstraint("workshop_id", "user_id", name="uq_reviews_workshop_user"),
     )
 
 

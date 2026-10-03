@@ -85,9 +85,7 @@ async def _make_workshop(
     return workshop
 
 
-async def _reserve(
-    client: AsyncClient, token: str, workshop_id: str
-) -> dict:
+async def _reserve(client: AsyncClient, token: str, workshop_id: str) -> dict:
     """Reserve a seat on a workshop as the signed-in account."""
     response = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
@@ -102,11 +100,7 @@ async def _move_workshop_to_the_past(workshop_id: str, session_factory) -> None:
     """Simulate time passing for a workshop created by the test."""
     async with session_factory() as s:
         await s.execute(
-            text(
-                "UPDATE workshops "
-                "SET starts_at = :starts, ends_at = :ends "
-                "WHERE id = :id"
-            ),
+            text("UPDATE workshops SET starts_at = :starts, ends_at = :ends WHERE id = :id"),
             {
                 "starts": datetime(2020, 1, 15, 12, 30, tzinfo=UTC),
                 "ends": datetime(2020, 1, 15, 14, 30, tzinfo=UTC),
@@ -122,9 +116,7 @@ async def cleanup_reviews(session_factory):
     yield
     async with session_factory() as s:
         for workshop_id in _CREATED_WORKSHOPS:
-            await s.execute(
-                text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
-            )
+            await s.execute(text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id})
         for organization_id in _CREATED_ORGANIZATIONS:
             await s.execute(
                 text("DELETE FROM organizations WHERE id = :id"),

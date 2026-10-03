@@ -14,13 +14,14 @@ Exercises ``GET /api/organizer/stats``:
   organization).
 """
 
+import os
 import uuid
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-ADMIN_EMAIL = "eslamehababoutaleb@gmail.com"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = "Password123!"
 
 # Ids created by the running test, removed again by the
@@ -50,9 +51,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _make_organization(client: AsyncClient, token: str, name: str) -> dict:
     """Create an organization through the API and track it for cleanup."""
-    response = await client.post(
-        "/api/organizations", json={"name": name}, headers=_auth(token)
-    )
+    response = await client.post("/api/organizations", json={"name": name}, headers=_auth(token))
     assert response.status_code == 201, response.text
     organization = response.json()
     _CREATED_ORGANIZATIONS.append(str(organization["id"]))
@@ -80,9 +79,7 @@ async def _make_workshop(
     return workshop
 
 
-async def _reserve(
-    client: AsyncClient, token: str, workshop_id: str
-) -> dict:
+async def _reserve(client: AsyncClient, token: str, workshop_id: str) -> dict:
     """Reserve a seat on a workshop as the signed-in account."""
     response = await client.post(
         f"/api/workshops/{workshop_id}/reservations",
@@ -95,9 +92,7 @@ async def _reserve(
 
 async def _cancel(client: AsyncClient, token: str, reservation_id: str) -> None:
     """Cancel a reservation owned by the signed-in account."""
-    response = await client.delete(
-        f"/api/reservations/{reservation_id}", headers=_auth(token)
-    )
+    response = await client.delete(f"/api/reservations/{reservation_id}", headers=_auth(token))
     assert response.status_code == 200, response.text
 
 
@@ -107,9 +102,7 @@ async def cleanup_dashboard(session_factory):
     yield
     async with session_factory() as s:
         for workshop_id in _CREATED_WORKSHOPS:
-            await s.execute(
-                text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
-            )
+            await s.execute(text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id})
         for organization_id in _CREATED_ORGANIZATIONS:
             await s.execute(
                 text("DELETE FROM organizations WHERE id = :id"),
@@ -127,9 +120,7 @@ async def test_dashboard_reports_bookings_and_attendees(
     """Stats, per-workshop counts and the attendee list are correct."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
     organization = await _make_organization(client, owner_token, "Dashboard Org")
-    workshop = await _make_workshop(
-        client, owner_token, organization["id"], "Dashboard session"
-    )
+    workshop = await _make_workshop(client, owner_token, organization["id"], "Dashboard session")
 
     attendee_a = await _signup(client, f"attendee_a_{uuid.uuid4()}@example.com")
     attendee_b = await _signup(client, f"attendee_b_{uuid.uuid4()}@example.com")
@@ -172,9 +163,7 @@ async def test_dashboard_counts_only_active_bookings(
     """Cancelling every reservation zeroes the booking counts."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
     organization = await _make_organization(client, owner_token, "Empty Org")
-    workshop = await _make_workshop(
-        client, owner_token, organization["id"], "Empty session"
-    )
+    workshop = await _make_workshop(client, owner_token, organization["id"], "Empty session")
 
     attendee = await _signup(client, f"attendee_{uuid.uuid4()}@example.com")
     reservation = await _reserve(client, attendee, workshop["id"])
@@ -205,14 +194,13 @@ async def test_dashboard_requires_authentication(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_member_sees_organization_workshops(
-    client: AsyncClient, session_factory,
+    client: AsyncClient,
+    session_factory,
 ) -> None:
     """A plain member (attendee role) sees the organization's workshops."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
     organization = await _make_organization(client, owner_token, "Member Org")
-    workshop = await _make_workshop(
-        client, owner_token, organization["id"], "Member session"
-    )
+    workshop = await _make_workshop(client, owner_token, organization["id"], "Member session")
 
     # There is no add-member endpoint yet, so the membership is
     # provisioned directly. The member keeps the attendee platform
@@ -237,14 +225,13 @@ async def test_member_sees_organization_workshops(
 
 @pytest.mark.asyncio
 async def test_admin_sees_all_workshops(
-    client: AsyncClient, session_factory,
+    client: AsyncClient,
+    session_factory,
 ) -> None:
     """The configured super-admin sees workshops they do not own."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
     organization = await _make_organization(client, owner_token, "Admin Org")
-    workshop = await _make_workshop(
-        client, owner_token, organization["id"], "Admin session"
-    )
+    workshop = await _make_workshop(client, owner_token, organization["id"], "Admin session")
 
     attendee = await _signup(client, f"attendee_{uuid.uuid4()}@example.com")
     await _reserve(client, attendee, workshop["id"])
@@ -258,15 +245,11 @@ async def test_admin_sees_all_workshops(
     assert any(w["workshop_id"] == workshop["id"] for w in payload["workshops"])
     # Per-workshop counts are exact even though the totals span
     # every workshop in the shared test database.
-    breakdown = next(
-        w for w in payload["workshops"] if w["workshop_id"] == workshop["id"]
-    )
+    breakdown = next(w for w in payload["workshops"] if w["workshop_id"] == workshop["id"])
     assert breakdown["booking_count"] == 1
     assert len(breakdown["attendees"]) == 1
 
     # Clean up the admin account so later runs can re-signup.
     async with session_factory() as s:
-        await s.execute(
-            text("DELETE FROM users WHERE email = :email"), {"email": ADMIN_EMAIL}
-        )
+        await s.execute(text("DELETE FROM users WHERE email = :email"), {"email": ADMIN_EMAIL})
         await s.commit()

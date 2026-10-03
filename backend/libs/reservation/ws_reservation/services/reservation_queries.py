@@ -132,9 +132,7 @@ async def get_waitlist_position(
     return ahead + 1
 
 
-async def count_active_waitlist_entries(
-    session: AsyncSession, workshop_id: uuid.UUID
-) -> int:
+async def count_active_waitlist_entries(session: AsyncSession, workshop_id: uuid.UUID) -> int:
     """Count active waitlist entries for a workshop."""
     statement = (
         select(func.count())

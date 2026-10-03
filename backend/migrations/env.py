@@ -16,11 +16,6 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-# Importing the app's settings module registers the concrete
-# Settings with ws-core (the module calls ws_core.config.configure
-# at import time), so ws_core.config.get_settings() below resolves.
-import src.configuration.settings  # noqa: F401  # registers settings with ws-core
 from ws_core.config import get_settings
 from ws_core.db.base import Base  # noqa: F401  # import for metadata side effects
 from ws_reservation.models import (  # noqa: F401
@@ -34,6 +29,11 @@ from ws_reservation.models import (  # noqa: F401
     WaitlistEntry,
     Workshop,
 )
+
+# Importing the app's settings module registers the concrete
+# Settings with ws-core (the module calls ws_core.config.configure
+# at import time), so ws_core.config.get_settings() below resolves.
+import src.configuration.settings  # noqa: F401  # registers settings with ws-core
 
 config = context.config
 

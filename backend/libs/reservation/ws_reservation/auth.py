@@ -99,9 +99,19 @@ async def get_current_organizer(
 
     * they are the environment-configured super-admin
       (``is_admin``), or
-    * their platform ``role`` is ``organizer`` or ``admin``, or
-    * they hold an ``owner``/``member`` membership in the
-      organization that owns the target workshop.
+    * their platform ``role`` is ``admin``, or
+    * they hold an ``owner``/``member`` membership in
+      the organization that owns the target workshop.
+
+    The platform ``organizer`` role is deliberately NOT
+    admitted here on its own: creating an organization
+    promotes the creator to ``organizer``, so a role-only
+    short-circuit would let any registered account manage
+    every workshop on the platform after a single
+    organization creation. Organizer-role callers - like
+    attendee-role callers - must hold a membership in the
+    workshop's owning organization; the membership, not the
+    role, is the authorization boundary.
 
     The target workshop is read from the ``workshop_id`` path
     parameter, so the same dependency serves the
@@ -144,7 +154,7 @@ async def get_current_organizer(
         WorkshopNotFoundError: 404 if the target workshop
             exists but the caller may not manage it.
     """
-    if is_admin(user) or user.role in (USER_ROLE_ORGANIZER, USER_ROLE_ADMIN):
+    if is_admin(user) or user.role == USER_ROLE_ADMIN:
         return user
 
     workshop_id = request.path_params.get("workshop_id")
@@ -154,9 +164,7 @@ async def get_current_organizer(
         # in the body is checked by the service layer.
         membership = (
             await session.execute(
-                select(OrganizationMembership).where(
-                    OrganizationMembership.user_id == user.id
-                )
+                select(OrganizationMembership).where(OrganizationMembership.user_id == user.id)
             )
         ).scalar_one_or_none()
         if membership is None:

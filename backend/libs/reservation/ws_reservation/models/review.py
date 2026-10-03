@@ -84,7 +84,5 @@ class Review(Base):
 
     __table_args__ = (
         CheckConstraint("rating BETWEEN 1 AND 5", name="ck_reviews_rating"),
-        UniqueConstraint(
-            "workshop_id", "user_id", name="uq_reviews_workshop_user"
-        ),
+        UniqueConstraint("workshop_id", "user_id", name="uq_reviews_workshop_user"),
     )

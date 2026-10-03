@@ -155,9 +155,7 @@ class RegistrationClosedError(DomainError):
     def __init__(self, workshop_id: str, reason: str = "closed") -> None:
         self.workshop_id = workshop_id
         self.reason = reason
-        super().__init__(
-            f"Registration for workshop {workshop_id} is no longer open"
-        )
+        super().__init__(f"Registration for workshop {workshop_id} is no longer open")
 
     status_code = status.HTTP_409_CONFLICT
     code = "registration_closed"
@@ -177,9 +175,7 @@ class RateLimitedError(DomainError):
 
     def __init__(self, retry_after_seconds: int) -> None:
         self.retry_after_seconds = retry_after_seconds
-        super().__init__(
-            f"Too many attempts. Try again in {retry_after_seconds} seconds"
-        )
+        super().__init__(f"Too many attempts. Try again in {retry_after_seconds} seconds")
 
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"
@@ -278,10 +274,7 @@ class CannotFollowOwnOrganizationError(DomainError):
 
     def __init__(self, organization_id: str) -> None:
         self.organization_id = organization_id
-        super().__init__(
-            f"Cannot follow organization {organization_id}: "
-            "you are already a member"
-        )
+        super().__init__(f"Cannot follow organization {organization_id}: you are already a member")
 
     status_code = status.HTTP_409_CONFLICT
     code = "cannot_follow_own_organization"

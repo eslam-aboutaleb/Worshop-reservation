@@ -164,8 +164,6 @@ def create_router(container: Container) -> APIRouter:
             OrganizationNotFoundError: 404 if no organization
                 has this id.
         """
-        return await organization_service.unfollow_organization(
-            session, organization_id, user
-        )
+        return await organization_service.unfollow_organization(session, organization_id, user)
 
     return router

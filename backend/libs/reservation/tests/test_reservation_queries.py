@@ -10,10 +10,9 @@ import uuid
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import hash_password
 from ws_core.auth.models import User
 from ws_core.events import EventBus
-
-from ws_core.auth import hash_password
 from ws_reservation.schemas.reservation import ReservationCreate
 from ws_reservation.services import reservation_queries, reservation_service
 
@@ -43,7 +42,9 @@ async def test_count_active_reservations_starts_at_zero(
 
 @pytest.mark.asyncio
 async def test_count_active_reservations_excludes_cancelled(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Cancelled rows must not be counted toward the active total."""
     user = _unique_user(session, "countuser")
@@ -81,7 +82,9 @@ async def test_find_idempotent_reservation_returns_none_when_absent(
 
 @pytest.mark.asyncio
 async def test_find_idempotent_reservation_returns_linked_reservation(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """The key points back at the reservation created in the same call."""
     user = _unique_user(session, "linked")
@@ -106,7 +109,9 @@ async def test_find_idempotent_reservation_returns_linked_reservation(
 
 @pytest.mark.asyncio
 async def test_find_idempotent_reservation_is_scoped_to_workshop(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """The same key on a different workshop must not match."""
     user = _unique_user(session, "scoped")
@@ -131,7 +136,9 @@ async def test_find_idempotent_reservation_is_scoped_to_workshop(
 
 @pytest.mark.asyncio
 async def test_find_idempotent_reservation_is_scoped_to_caller(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Reusing another account's key must not resolve to their reservation.
 
@@ -164,7 +171,9 @@ async def test_find_idempotent_reservation_is_scoped_to_caller(
 
 @pytest.mark.asyncio
 async def test_list_user_reservations_returns_only_owned_rows(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """A user's listing contains only their own reservations, newest first."""
     user = _unique_user(session, "listowner")
@@ -211,7 +220,9 @@ async def test_list_user_reservations_empty_for_new_user(session: AsyncSession) 
 
 @pytest.mark.asyncio
 async def test_list_user_reservations_includes_cancelled_rows(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """The /me listing shows both active and cancelled reservations."""
     user = _unique_user(session, "canceluser")

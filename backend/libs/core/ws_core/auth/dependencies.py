@@ -14,7 +14,6 @@ application (and, from plan 03 on, the organizer plugin). It lives
 in ``src/auth.py`` and depends on :func:`get_current_user` here.
 """
 
-
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import select

@@ -15,11 +15,10 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import hash_password
 from ws_core.auth.models import User
 from ws_core.errors import ReservationNotFoundError, WorkshopNotFoundError
 from ws_core.events import EventBus
-
-from ws_core.auth import hash_password
 from ws_reservation.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
 from ws_reservation.schemas.reservation import ReservationCreate
 from ws_reservation.services import reservation_service
@@ -42,7 +41,8 @@ async def _make_user(session: AsyncSession, email: str | None = None) -> User:
 
 @pytest.mark.asyncio
 async def test_create_reservation_unknown_workshop_raises(
-    session: AsyncSession, event_bus: EventBus,
+    session: AsyncSession,
+    event_bus: EventBus,
 ) -> None:
     """POSTing against a random UUID must raise WorkshopNotFoundError."""
     user = await _make_user(session)
@@ -139,7 +139,9 @@ async def test_cancel_requires_authorization_for_signed_in_user(
     )
 
     with pytest.raises(ReservationNotFoundError):
-        await reservation_service.cancel_reservation(session, reservation.id, bob, event_bus=event_bus)
+        await reservation_service.cancel_reservation(
+            session, reservation.id, bob, event_bus=event_bus
+        )
 
 
 @pytest.mark.asyncio
@@ -156,7 +158,9 @@ async def test_cancel_allows_owner_to_cancel_their_own_reservation(
         user=user,
         event_bus=event_bus,
     )
-    cancelled = await reservation_service.cancel_reservation(session, reservation.id, user, event_bus=event_bus)
+    cancelled = await reservation_service.cancel_reservation(
+        session, reservation.id, user, event_bus=event_bus
+    )
     assert cancelled.status == "cancelled"
     assert cancelled.cancelled_at is not None
 
@@ -193,7 +197,9 @@ async def test_cancel_rejects_signed_in_user_for_unowned_legacy_row(
 
     intruder = await _make_user(session)
     with pytest.raises(ReservationNotFoundError):
-        await reservation_service.cancel_reservation(session, legacy_id, intruder, event_bus=event_bus)
+        await reservation_service.cancel_reservation(
+            session, legacy_id, intruder, event_bus=event_bus
+        )
 
     # The row must be untouched, not merely hidden.
     await session.refresh(legacy)
@@ -203,21 +209,27 @@ async def test_cancel_rejects_signed_in_user_for_unowned_legacy_row(
 
 @pytest.mark.asyncio
 async def test_cancel_requires_authentication(
-    session: AsyncSession, event_bus: EventBus,
+    session: AsyncSession,
+    event_bus: EventBus,
 ) -> None:
     """An anonymous caller cannot cancel any reservation (returns 404, not 500)."""
     with pytest.raises(ReservationNotFoundError):
-        await reservation_service.cancel_reservation(session, uuid.uuid4(), None, event_bus=event_bus)
+        await reservation_service.cancel_reservation(
+            session, uuid.uuid4(), None, event_bus=event_bus
+        )
 
 
 @pytest.mark.asyncio
 async def test_cancel_unknown_reservation_raises(
-    session: AsyncSession, event_bus: EventBus,
+    session: AsyncSession,
+    event_bus: EventBus,
 ) -> None:
     """An unknown reservation id surfaces as ReservationNotFoundError for a signed-in user."""
     user = await _make_user(session)
     with pytest.raises(ReservationNotFoundError):
-        await reservation_service.cancel_reservation(session, uuid.uuid4(), user, event_bus=event_bus)
+        await reservation_service.cancel_reservation(
+            session, uuid.uuid4(), user, event_bus=event_bus
+        )
 
 
 @pytest.mark.asyncio
@@ -261,7 +273,9 @@ async def test_deleting_an_account_cannot_orphan_its_reservation(
     assert row.user_id == user_id
     assert row.status == RESERVATION_STATUS_ACTIVE
     owner = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
-    cancelled = await reservation_service.cancel_reservation(session, row.id, owner, event_bus=event_bus)
+    cancelled = await reservation_service.cancel_reservation(
+        session, row.id, owner, event_bus=event_bus
+    )
     assert cancelled.status == "cancelled"
 
 
@@ -327,7 +341,9 @@ async def test_already_reserved_raises_for_same_account(
 
 @pytest.mark.asyncio
 async def test_re_reserve_after_cancel_is_allowed(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Cancel + re-reserve is the supported 'changed my mind' flow."""
     user = await _make_user(session)

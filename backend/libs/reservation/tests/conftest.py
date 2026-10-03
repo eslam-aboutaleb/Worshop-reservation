@@ -33,24 +33,17 @@ import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-from ws_core.app import create_app
-from ws_core.db.engine import get_db
-from ws_core.events import EventBus
-from ws_core.events.in_process import InProcessEventBus
-from ws_core.rate_limit import reset_rate_limiter
-from ws_core.realtime import set_realtime_bus
-from ws_core.realtime.in_process import InProcessRealtimeBus
-
-from src.configuration.settings import get_settings
-from ws_reservation import ReservationPlugin
-from ws_reservation.models import Workshop
-
+# The test environment must be in place before
+# ``src.configuration.settings`` is imported: that
+# module instantiates and caches the ``Settings``
+# object at import time (``configure_ws_core(get_settings())``
+# at module bottom), and a cached instance would
+# otherwise read the repository ``.env`` - whose
+# ``ADMIN_EMAIL`` belongs to the developer, not the
+# test suite - instead of the test defaults below.
+# Environment variables take precedence over the
+# ``.env`` file, so setting them first keeps the
+# suite self-contained and runnable standalone.
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://workshop_user:workshop_pass@localhost:5432/workshop_reservations",
@@ -60,7 +53,32 @@ os.environ.setdefault(
     "AUTH_SECRET_KEY",
     "test-secret-key-at-least-32-characters-long-for-tests",
 )
-os.environ.setdefault("ADMIN_EMAIL", "eslamehababoutaleb@gmail.com")
+os.environ.setdefault("ADMIN_EMAIL", "admin@example.com")
+# The test stack runs on plain HTTP, so the session
+# cookie must not carry the Secure attribute.
+os.environ.setdefault("COOKIE_SECURE", "false")
+
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.ext.asyncio import (  # noqa: E402
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool  # noqa: E402
+from ws_core.app import create_app  # noqa: E402
+from ws_core.db.engine import get_db  # noqa: E402
+from ws_core.events import EventBus  # noqa: E402
+from ws_core.events.in_process import InProcessEventBus  # noqa: E402
+from ws_core.rate_limit import reset_rate_limiter  # noqa: E402
+from ws_core.realtime import set_realtime_bus  # noqa: E402
+from ws_core.realtime.in_process import InProcessRealtimeBus  # noqa: E402
+from ws_reservation import ReservationPlugin  # noqa: E402
+from ws_reservation.models import Workshop  # noqa: E402
+
+from src.configuration.settings import get_settings  # noqa: E402
 
 _engine = create_async_engine(os.environ["DATABASE_URL"], echo=False, poolclass=NullPool)
 _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)

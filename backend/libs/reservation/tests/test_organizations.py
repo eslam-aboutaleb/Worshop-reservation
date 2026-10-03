@@ -7,13 +7,14 @@ membership or admin, and the ``get_current_organizer``
 dependency rejects plain attendees.
 """
 
+import os
 import uuid
 
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
-ADMIN_EMAIL = "eslamehababoutaleb@gmail.com"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
 PASSWORD = "Password123!"
 
 # Ids created by the running test, removed again by the
@@ -43,9 +44,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _make_organization(client: AsyncClient, token: str, name: str) -> dict:
     """Create an organization through the API and track it for cleanup."""
-    response = await client.post(
-        "/api/organizations", json={"name": name}, headers=_auth(token)
-    )
+    response = await client.post("/api/organizations", json={"name": name}, headers=_auth(token))
     assert response.status_code == 201, response.text
     organization = response.json()
     _CREATED_ORGANIZATIONS.append(str(organization["id"]))
@@ -79,9 +78,7 @@ async def cleanup_organizations(session_factory):
     yield
     async with session_factory() as s:
         for workshop_id in _CREATED_WORKSHOPS:
-            await s.execute(
-                text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
-            )
+            await s.execute(text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id})
         for organization_id in _CREATED_ORGANIZATIONS:
             await s.execute(
                 text("DELETE FROM organizations WHERE id = :id"),
@@ -94,7 +91,8 @@ async def cleanup_organizations(session_factory):
 
 @pytest.mark.asyncio
 async def test_create_organization_promotes_creator_to_owner(
-    client: AsyncClient, session_factory,
+    client: AsyncClient,
+    session_factory,
 ) -> None:
     """The creator becomes the owner and their role is promoted to organizer."""
     email = f"creator_{uuid.uuid4()}@example.com"
@@ -110,10 +108,7 @@ async def test_create_organization_promotes_creator_to_owner(
     async with session_factory() as s:
         rows = (
             await s.execute(
-                text(
-                    "SELECT role FROM organization_memberships "
-                    "WHERE organization_id = :oid"
-                ),
+                text("SELECT role FROM organization_memberships WHERE organization_id = :oid"),
                 {"oid": organization["id"]},
             )
         ).fetchall()
@@ -158,25 +153,60 @@ async def test_non_member_cannot_mutate_foreign_organization_workshop(
     assert update.status_code == 404, update.text
     assert update.json()["error"]["code"] == "workshop_not_found"
 
-    publish = await client.post(
-        f"/api/workshops/{workshop['id']}/publish", headers=headers
-    )
+    publish = await client.post(f"/api/workshops/{workshop['id']}/publish", headers=headers)
     assert publish.status_code == 404, publish.text
 
-    cancel = await client.post(
-        f"/api/workshops/{workshop['id']}/cancel", headers=headers
-    )
+    cancel = await client.post(f"/api/workshops/{workshop['id']}/cancel", headers=headers)
     assert cancel.status_code == 404, cancel.text
 
-    delete = await client.delete(
-        f"/api/workshops/{workshop['id']}", headers=headers
+    delete = await client.delete(f"/api/workshops/{workshop['id']}", headers=headers)
+    assert delete.status_code == 404, delete.text
+
+
+@pytest.mark.asyncio
+async def test_organizer_cannot_mutate_foreign_organization_workshop(
+    client: AsyncClient,
+) -> None:
+    """An organizer-role account from one org gets 404 on another org's workshop.
+
+    Creating an organization promotes the creator to the platform
+    ``organizer`` role. That role must not grant platform-wide
+    workshop management: authorization flows through the membership
+    in the workshop's owning organization, so an organizer of one
+    organization cannot mutate another organization's workshop.
+    """
+    owner_a = await _signup(client, f"owner_a_{uuid.uuid4()}@example.com")
+    organization_a = await _make_organization(client, owner_a, "Escalation Org A")
+    workshop = await _make_workshop(client, owner_a, organization_a["id"])
+
+    # owner_b owns Org B and therefore holds the organizer role,
+    # but has no membership in Org A.
+    owner_b = await _signup(client, f"owner_b_{uuid.uuid4()}@example.com")
+    await _make_organization(client, owner_b, "Escalation Org B")
+    headers = _auth(owner_b)
+
+    update = await client.put(
+        f"/api/workshops/{workshop['id']}",
+        json={"title": "Hijacked"},
+        headers=headers,
     )
+    assert update.status_code == 404, update.text
+    assert update.json()["error"]["code"] == "workshop_not_found"
+
+    publish = await client.post(f"/api/workshops/{workshop['id']}/publish", headers=headers)
+    assert publish.status_code == 404, publish.text
+
+    cancel = await client.post(f"/api/workshops/{workshop['id']}/cancel", headers=headers)
+    assert cancel.status_code == 404, cancel.text
+
+    delete = await client.delete(f"/api/workshops/{workshop['id']}", headers=headers)
     assert delete.status_code == 404, delete.text
 
 
 @pytest.mark.asyncio
 async def test_organization_member_can_mutate_own_workshop(
-    client: AsyncClient, session_factory,
+    client: AsyncClient,
+    session_factory,
 ) -> None:
     """A plain attendee holding a membership may manage the organization's workshop."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
@@ -211,9 +241,7 @@ async def test_organization_member_can_mutate_own_workshop(
     )
     assert publish.status_code == 200, publish.text
 
-    delete = await client.delete(
-        f"/api/workshops/{workshop['id']}", headers=_auth(member_token)
-    )
+    delete = await client.delete(f"/api/workshops/{workshop['id']}", headers=_auth(member_token))
     assert delete.status_code == 204, delete.text
 
 
@@ -233,9 +261,7 @@ async def test_admin_can_mutate_organization_workshop(client: AsyncClient) -> No
     assert update.status_code == 200, update.text
     assert update.json()["title"] == "Updated by admin"
 
-    delete = await client.delete(
-        f"/api/workshops/{workshop['id']}", headers=_auth(admin_token)
-    )
+    delete = await client.delete(f"/api/workshops/{workshop['id']}", headers=_auth(admin_token))
     assert delete.status_code == 204, delete.text
 
 
@@ -258,9 +284,7 @@ async def test_get_current_organizer_rejects_plain_attendee(
     )
     assert create.status_code == 403, create.text
 
-    delete = await client.delete(
-        f"/api/workshops/{uuid.uuid4()}", headers=headers
-    )
+    delete = await client.delete(f"/api/workshops/{uuid.uuid4()}", headers=headers)
     assert delete.status_code == 403, delete.text
 
 
@@ -289,3 +313,49 @@ async def test_member_cannot_create_workshop_for_foreign_organization(
     )
     assert create.status_code == 404, create.text
     assert create.json()["error"]["code"] == "organization_not_found"
+
+
+@pytest.mark.asyncio
+async def test_is_organization_member_reflects_membership(
+    client: AsyncClient,
+    session_factory,
+) -> None:
+    """The membership predicate is true for members only.
+
+    Called directly rather than through the API so the
+    predicate's own query is exercised as a unit: the
+    creator of an organization is a member of it, an
+    unrelated account is not.
+    """
+    from sqlalchemy import select
+    from ws_core.auth.models import User
+    from ws_reservation.models.organization import Organization
+    from ws_reservation.services.organization_service import (
+        is_organization_member,
+    )
+
+    owner_email = f"member_owner_{uuid.uuid4()}@example.com"
+    stranger_email = f"member_stranger_{uuid.uuid4()}@example.com"
+    owner_token = await _signup(client, owner_email)
+    await _signup(client, stranger_email)
+    organization = await _make_organization(
+        client, owner_token, "Membership Org"
+    )
+
+    async with session_factory() as s:
+        owner = (
+            await s.execute(select(User).where(User.email == owner_email))
+        ).scalar_one()
+        stranger = (
+            await s.execute(select(User).where(User.email == stranger_email))
+        ).scalar_one()
+        org = (
+            await s.execute(
+                select(Organization).where(
+                    Organization.id == organization["id"]
+                )
+            )
+        ).scalar_one()
+
+        assert await is_organization_member(s, owner.id, org.id) is True
+        assert await is_organization_member(s, stranger.id, org.id) is False

@@ -711,9 +711,7 @@ async def _promote_next_waitlist_entry(
             return None
 
         try:
-            reservation = await _insert_reservation(
-                session, workshop.id, user, user.email
-            )
+            reservation = await _insert_reservation(session, workshop.id, user, user.email)
         except AlreadyReservedError:
             # Lost a race to a direct booking: skip this entry.
             entry.status = WAITLIST_STATUS_CANCELLED
@@ -775,9 +773,7 @@ async def get_reservation(
             exist or is owned by another account.
     """
     reservation = (
-        await session.execute(
-            select(Reservation).where(Reservation.id == reservation_id)
-        )
+        await session.execute(select(Reservation).where(Reservation.id == reservation_id))
     ).scalar_one_or_none()
     if reservation is None or reservation.user_id != user.id:
         raise ReservationNotFoundError(str(reservation_id))

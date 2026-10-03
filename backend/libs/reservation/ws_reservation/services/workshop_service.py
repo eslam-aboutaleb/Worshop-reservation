@@ -194,9 +194,7 @@ async def list_workshops(
     # The public catalogue only ever shows published sessions;
     # the administrator's management view lists every state
     # so cancelled and draft sessions stay reachable.
-    conditions = (
-        [] if include_unpublished else [Workshop.status == WORKSHOP_STATUS_PUBLISHED]
-    )
+    conditions = [] if include_unpublished else [Workshop.status == WORKSHOP_STATUS_PUBLISHED]
     if state == "upcoming":
         conditions.append(Workshop.starts_at >= now)
     elif state == "past":
@@ -220,9 +218,7 @@ async def list_workshops(
         .scalar_subquery()
     )
 
-    total = (
-        await session.execute(select(func.count(Workshop.id)).where(*conditions))
-    ).scalar_one()
+    total = (await session.execute(select(func.count(Workshop.id)).where(*conditions))).scalar_one()
 
     stmt = (
         select(Workshop, (Workshop.max_capacity - active_count).label("available_spots"))
@@ -233,10 +229,7 @@ async def list_workshops(
     )
     result = await session.execute(stmt)
     rows = result.all()
-    items = [
-        _workshop_to_response(workshop, available_spots)
-        for workshop, available_spots in rows
-    ]
+    items = [_workshop_to_response(workshop, available_spots) for workshop, available_spots in rows]
     return WorkshopListResponse(
         items=items,
         total=int(total),
@@ -600,9 +593,7 @@ async def get_workshop_detail(
         )
         waitlist_position = await get_waitlist_position(session, workshop_id, user_id)
 
-    rating_average, rating_count = await get_review_aggregate(
-        session, workshop_id
-    )
+    rating_average, rating_count = await get_review_aggregate(session, workshop_id)
     reviews = await list_workshop_reviews(session, workshop_id)
 
     return WorkshopDetailResponse(

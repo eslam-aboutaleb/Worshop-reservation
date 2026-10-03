@@ -38,7 +38,9 @@ async def test_me_empty_for_new_account(client: AsyncClient, api_signup, auth_he
 
 
 @pytest.mark.asyncio
-async def test_me_lists_signed_in_users_reservations(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_me_lists_signed_in_users_reservations(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """Creating a reservation as a signed-in user shows up in /me."""
     token, email = await api_signup()
     create = await client.post(
@@ -59,7 +61,9 @@ async def test_me_lists_signed_in_users_reservations(client: AsyncClient, worksh
 
 
 @pytest.mark.asyncio
-async def test_me_includes_cancelled_reservations(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_me_includes_cancelled_reservations(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """Cancelled reservations are still visible (with status='cancelled')."""
     token, email = await api_signup()
     create = await client.post(
@@ -83,9 +87,7 @@ async def test_signed_in_cancel_uses_account_authorization(
     client: AsyncClient, workshop_id: str, api_signup, auth_headers
 ) -> None:
     """A signed-in user can only cancel their own (or legacy anonymous) reservations."""
-    alice_token, alice_email = await api_signup(
-        email=f"alice_{uuid.uuid4()}@example.com"
-    )
+    alice_token, alice_email = await api_signup(email=f"alice_{uuid.uuid4()}@example.com")
     bob_token, _ = await api_signup(email=f"bob_{uuid.uuid4()}@example.com")
 
     create = await client.post(
@@ -110,7 +112,9 @@ async def test_signed_in_cancel_uses_account_authorization(
 
 
 @pytest.mark.asyncio
-async def test_anonymous_cancel_is_rejected(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_anonymous_cancel_is_rejected(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """Anonymous cancellation by id is no longer permitted; the call must 401.
 
     Historically the API allowed anyone with a reservation id to
@@ -132,7 +136,11 @@ async def test_anonymous_cancel_is_rejected(client: AsyncClient, workshop_id: st
 
 @pytest.mark.asyncio
 async def test_signed_in_user_cannot_cancel_unowned_legacy_via_api(
-    client: AsyncClient, workshop_id: str, api_signup, auth_headers, session_factory,
+    client: AsyncClient,
+    workshop_id: str,
+    api_signup,
+    auth_headers,
+    session_factory,
 ) -> None:
     """A signed-in account must not be able to cancel an unowned row.
 
@@ -235,7 +243,9 @@ async def test_create_with_signed_in_token_uses_account_email(
 
 
 @pytest.mark.asyncio
-async def test_empty_idempotency_key_is_rejected(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_empty_idempotency_key_is_rejected(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """An empty Idempotency-Key header is rejected with 422."""
     token, _ = await api_signup()
     response = await client.post(
@@ -247,7 +257,9 @@ async def test_empty_idempotency_key_is_rejected(client: AsyncClient, workshop_i
 
 
 @pytest.mark.asyncio
-async def test_oversized_idempotency_key_is_rejected(client: AsyncClient, workshop_id: str, api_signup, auth_headers) -> None:
+async def test_oversized_idempotency_key_is_rejected(
+    client: AsyncClient, workshop_id: str, api_signup, auth_headers
+) -> None:
     """An Idempotency-Key over 255 characters is rejected with 422."""
     token, _ = await api_signup()
     response = await client.post(
@@ -273,7 +285,9 @@ async def test_max_length_idempotency_key_is_accepted(
 
 
 @pytest.mark.asyncio
-async def test_invalid_workshop_id_in_path_is_rejected(client: AsyncClient, api_signup, auth_headers) -> None:
+async def test_invalid_workshop_id_in_path_is_rejected(
+    client: AsyncClient, api_signup, auth_headers
+) -> None:
     """A non-UUID workshop id is rejected with 422."""
     token, _ = await api_signup()
     response = await client.post(
@@ -299,7 +313,9 @@ async def test_waitlist_me_requires_token(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_waitlist_me_empty_for_new_account(client: AsyncClient, api_signup, auth_headers) -> None:
+async def test_waitlist_me_empty_for_new_account(
+    client: AsyncClient, api_signup, auth_headers
+) -> None:
     """A fresh account holds no places in line."""
     token, _ = await api_signup()
     response = await client.get("/api/waitlist/me", headers=auth_headers(token))
@@ -313,9 +329,7 @@ async def test_waitlist_me_lists_active_entries_with_title(
 ) -> None:
     """Joining a waitlist surfaces the entry with its workshop title."""
     token, _ = await api_signup()
-    join = await client.post(
-        f"/api/workshops/{workshop_id}/waitlist", headers=auth_headers(token)
-    )
+    join = await client.post(f"/api/workshops/{workshop_id}/waitlist", headers=auth_headers(token))
     assert join.status_code == 200
     entry_id = join.json()["entry"]["id"]
 

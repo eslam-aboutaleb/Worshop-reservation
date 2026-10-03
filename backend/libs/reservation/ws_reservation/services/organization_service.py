@@ -109,9 +109,7 @@ async def _unique_slug(
     candidate = base
     while True:
         exists = (
-            await session.execute(
-                select(Organization.id).where(Organization.slug == candidate)
-            )
+            await session.execute(select(Organization.id).where(Organization.slug == candidate))
         ).scalar_one_or_none()
         if exists is None:
             return candidate
@@ -307,9 +305,7 @@ async def follow_organization(
             caller is a member of the organization.
     """
     organization = (
-        await session.execute(
-            select(Organization).where(Organization.id == organization_id)
-        )
+        await session.execute(select(Organization).where(Organization.id == organization_id))
     ).scalar_one_or_none()
     if organization is None:
         raise OrganizationNotFoundError(str(organization_id))
@@ -320,9 +316,7 @@ async def follow_organization(
     existing = await find_follow(session, user.id, organization_id)
     if existing is not None:
         return (
-            _organization_response(
-                organization, await count_followers(session, organization_id)
-            ),
+            _organization_response(organization, await count_followers(session, organization_id)),
             True,
         )
 
@@ -339,9 +333,7 @@ async def follow_organization(
         user_id=str(user.id),
     )
     return (
-        _organization_response(
-            organization, await count_followers(session, organization_id)
-        ),
+        _organization_response(organization, await count_followers(session, organization_id)),
         False,
     )
 
@@ -373,9 +365,7 @@ async def unfollow_organization(
             has this id.
     """
     organization = (
-        await session.execute(
-            select(Organization).where(Organization.id == organization_id)
-        )
+        await session.execute(select(Organization).where(Organization.id == organization_id))
     ).scalar_one_or_none()
     if organization is None:
         raise OrganizationNotFoundError(str(organization_id))
@@ -389,6 +379,4 @@ async def unfollow_organization(
             organization_id=str(organization_id),
             user_id=str(user.id),
         )
-    return _organization_response(
-        organization, await count_followers(session, organization_id)
-    )
+    return _organization_response(organization, await count_followers(session, organization_id))

@@ -123,8 +123,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     if async_session_factory is None:
         raise RuntimeError(
-            "ws_core.db.init_db(settings) must be called before "
-            "the get_db dependency is used."
+            "ws_core.db.init_db(settings) must be called before the get_db dependency is used."
         )
     async with async_session_factory() as session:
         try:

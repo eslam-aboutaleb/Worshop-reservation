@@ -105,9 +105,7 @@ async def test_slow_consumer_is_dropped_not_blocked() -> None:
         bus._global_subscribers.add(queue)
     try:
         # Publishing should not block even though the queue is full.
-        await asyncio.wait_for(
-            bus.publish(uuid.uuid4(), {"type": "x"}), timeout=0.5
-        )
+        await asyncio.wait_for(bus.publish(uuid.uuid4(), {"type": "x"}), timeout=0.5)
         # The original event is still there; the new one was dropped.
         assert await queue.get() == {"existing": True}
     finally:

@@ -10,7 +10,6 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-
 from ws_core.auth import (
     _ARGON2_MEMORY_COST_KIB,
     _ARGON2_PARALLELISM,

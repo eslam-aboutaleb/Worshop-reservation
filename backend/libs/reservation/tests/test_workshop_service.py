@@ -10,11 +10,10 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from ws_core.auth import hash_password
 from ws_core.auth.models import User
 from ws_core.errors import WorkshopNotFoundError
 from ws_core.events import EventBus
-
-from ws_core.auth import hash_password
 from ws_reservation.models.reservation import (
     RESERVATION_STATUS_ACTIVE,
     RESERVATION_STATUS_CANCELLED,
@@ -65,7 +64,9 @@ async def test_list_workshops_reports_capacity_minus_active(
 
 @pytest.mark.asyncio
 async def test_list_workshops_decrements_after_reservation(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Creating a reservation decrements the visible seat count for that workshop."""
     before = (await workshop_service.list_workshops(session)).items
@@ -87,7 +88,9 @@ async def test_list_workshops_decrements_after_reservation(
 
 @pytest.mark.asyncio
 async def test_list_workshops_clamps_available_to_zero_when_full(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Filling the fixture workshop (capacity=3) drops available_spots to 0."""
     for i in range(3):
@@ -109,7 +112,9 @@ async def test_list_workshops_clamps_available_to_zero_when_full(
 
 @pytest.mark.asyncio
 async def test_get_workshop_detail_returns_reservations_only_for_owner(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """A signed-in user sees only their own reservations, not other users'."""
     suffix = uuid.uuid4().hex
@@ -156,7 +161,9 @@ async def test_get_workshop_detail_returns_reservations_only_for_owner(
 
 @pytest.mark.asyncio
 async def test_get_workshop_detail_anonymous_sees_no_reservations(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """An anonymous request always sees an empty reservations list."""
     suffix = uuid.uuid4().hex
@@ -176,7 +183,9 @@ async def test_get_workshop_detail_anonymous_sees_no_reservations(
 
 @pytest.mark.asyncio
 async def test_get_workshop_detail_ignores_cancelled_reservations(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """Cancelled bookings must not appear in the detail's reservation list."""
     suffix = uuid.uuid4().hex
@@ -221,7 +230,9 @@ async def test_get_workshop_detail_raises_when_missing(session: AsyncSession) ->
 
 @pytest.mark.asyncio
 async def test_get_workshop_detail_picks_active_status_only(
-    session: AsyncSession, workshop_id: str, event_bus: EventBus,
+    session: AsyncSession,
+    workshop_id: str,
+    event_bus: EventBus,
 ) -> None:
     """A row with status='cancelled' must never be considered active."""
     # Snapshot before. The fixture's shared DB may already contain
@@ -291,9 +302,7 @@ async def test_list_workshops_is_ordered_by_start_time(session: AsyncSession) ->
             )
         await session.commit()
 
-        result = (
-            await workshop_service.list_workshops(session, limit=1000)
-        ).items
+        result = (await workshop_service.list_workshops(session, limit=1000)).items
         ours = [w for w in result if str(w.id) in {str(i) for i in new_ids}]
         assert [w.title for w in ours] == [
             f"order_early_{suffix}",
@@ -308,7 +317,8 @@ async def test_list_workshops_is_ordered_by_start_time(session: AsyncSession) ->
 
 @pytest.mark.asyncio
 async def test_create_and_delete_workshop(
-    session: AsyncSession, event_bus: EventBus,
+    session: AsyncSession,
+    event_bus: EventBus,
 ) -> None:
     from datetime import datetime, timedelta
 

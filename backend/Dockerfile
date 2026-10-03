@@ -1,6 +1,9 @@
 FROM python:3.12-slim AS builder
 WORKDIR /app
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Pin the uv installer image to a specific version so
+# the build is reproducible and cannot silently pick up
+# a breaking (or compromised) new uv release.
+COPY --from=ghcr.io/astral-sh/uv:0.11.13 /uv /uvx /bin/
 COPY pyproject.toml .
 # The root project depends on the ws-core workspace
 # member, so its source must be present for the install.

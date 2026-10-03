@@ -67,14 +67,10 @@ async def _own_workshop_ids(
     statement = select(OrganizationMembership.organization_id).where(
         OrganizationMembership.user_id == user.id
     )
-    organization_ids = list(
-        (await session.execute(statement)).scalars().all()
-    )
+    organization_ids = list((await session.execute(statement)).scalars().all())
     if not organization_ids:
         return []
-    workshop_statement = select(Workshop.id).where(
-        Workshop.organization_id.in_(organization_ids)
-    )
+    workshop_statement = select(Workshop.id).where(Workshop.organization_id.in_(organization_ids))
     return list((await session.execute(workshop_statement)).scalars().all())
 
 
@@ -112,9 +108,7 @@ async def get_organizer_dashboard(
         Workshop.starts_at.asc(), Workshop.created_at.asc()
     )
     if workshop_ids is not None:
-        workshop_statement = workshop_statement.where(
-            Workshop.id.in_(workshop_ids)
-        )
+        workshop_statement = workshop_statement.where(Workshop.id.in_(workshop_ids))
     workshops = list((await session.execute(workshop_statement)).scalars().all())
 
     ids = [workshop.id for workshop in workshops]
@@ -125,8 +119,7 @@ async def get_organizer_dashboard(
     upcoming_sessions = sum(
         1
         for workshop in workshops
-        if workshop.status == WORKSHOP_STATUS_PUBLISHED
-        and workshop.starts_at >= now
+        if workshop.status == WORKSHOP_STATUS_PUBLISHED and workshop.starts_at >= now
     )
 
     stats: list[OrganizerWorkshopStats] = []

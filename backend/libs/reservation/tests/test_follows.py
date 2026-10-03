@@ -48,9 +48,7 @@ def _auth(token: str) -> dict[str, str]:
 
 async def _make_organization(client: AsyncClient, token: str, name: str) -> dict:
     """Create an organization through the API and track it for cleanup."""
-    response = await client.post(
-        "/api/organizations", json={"name": name}, headers=_auth(token)
-    )
+    response = await client.post("/api/organizations", json={"name": name}, headers=_auth(token))
     assert response.status_code == 201, response.text
     organization = response.json()
     _CREATED_ORGANIZATIONS.append(str(organization["id"]))
@@ -86,9 +84,7 @@ async def cleanup_follows(session_factory):
     yield
     async with session_factory() as s:
         for workshop_id in _CREATED_WORKSHOPS:
-            await s.execute(
-                text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id}
-            )
+            await s.execute(text("DELETE FROM workshops WHERE id = :id"), {"id": workshop_id})
         for organization_id in _CREATED_ORGANIZATIONS:
             await s.execute(
                 text("DELETE FROM organizations WHERE id = :id"),
@@ -109,18 +105,14 @@ async def test_follow_and_unfollow_are_idempotent(client: AsyncClient) -> None:
     headers = _auth(follower_token)
 
     # First follow creates the row (201) and bumps the count.
-    first = await client.post(
-        f"/api/organizations/{organization['id']}/follow", headers=headers
-    )
+    first = await client.post(f"/api/organizations/{organization['id']}/follow", headers=headers)
     assert first.status_code == 201, first.text
     assert first.json()["followers_count"] == 1
     assert first.json()["id"] == organization["id"]
     assert first.json()["membership"] is None
 
     # Re-following is an idempotent replay (200), not an error.
-    replay = await client.post(
-        f"/api/organizations/{organization['id']}/follow", headers=headers
-    )
+    replay = await client.post(f"/api/organizations/{organization['id']}/follow", headers=headers)
     assert replay.status_code == 200, replay.text
     assert replay.json()["followers_count"] == 1
 
@@ -132,16 +124,15 @@ async def test_follow_and_unfollow_are_idempotent(client: AsyncClient) -> None:
     assert unfollow.json()["followers_count"] == 0
 
     # Unfollowing again is a no-op, not an error.
-    again = await client.delete(
-        f"/api/organizations/{organization['id']}/follow", headers=headers
-    )
+    again = await client.delete(f"/api/organizations/{organization['id']}/follow", headers=headers)
     assert again.status_code == 200, again.text
     assert again.json()["followers_count"] == 0
 
 
 @pytest.mark.asyncio
 async def test_member_cannot_follow_own_organization(
-    client: AsyncClient, session_factory,
+    client: AsyncClient,
+    session_factory,
 ) -> None:
     """A member (owner or plain member) gets a 409 following their own org."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
@@ -158,10 +149,7 @@ async def test_member_cannot_follow_own_organization(
     async with session_factory() as s:
         count = (
             await s.execute(
-                text(
-                    "SELECT COUNT(*) FROM organization_follows "
-                    "WHERE organization_id = :oid"
-                ),
+                text("SELECT COUNT(*) FROM organization_follows WHERE organization_id = :oid"),
                 {"oid": organization["id"]},
             )
         ).scalar_one()
@@ -172,9 +160,7 @@ async def test_member_cannot_follow_own_organization(
 async def test_follow_unknown_organization_is_404(client: AsyncClient) -> None:
     """Following a nonexistent organization is 404-shaped."""
     token = await _signup(client, f"follower_{uuid.uuid4()}@example.com")
-    response = await client.post(
-        f"/api/organizations/{uuid.uuid4()}/follow", headers=_auth(token)
-    )
+    response = await client.post(f"/api/organizations/{uuid.uuid4()}/follow", headers=_auth(token))
     assert response.status_code == 404, response.text
     assert response.json()["error"]["code"] == "organization_not_found"
 
@@ -199,15 +185,11 @@ async def test_following_filter_lists_only_followed_organizations(
     """``following=true`` shows only workshops from followed organizations."""
     owner_a = await _signup(client, f"owner_a_{uuid.uuid4()}@example.com")
     organization_a = await _make_organization(client, owner_a, "Filter Org A")
-    workshop_a = await _make_workshop(
-        client, owner_a, organization_a["id"], "Org A session"
-    )
+    workshop_a = await _make_workshop(client, owner_a, organization_a["id"], "Org A session")
 
     owner_b = await _signup(client, f"owner_b_{uuid.uuid4()}@example.com")
     organization_b = await _make_organization(client, owner_b, "Filter Org B")
-    workshop_b = await _make_workshop(
-        client, owner_b, organization_b["id"], "Org B session"
-    )
+    workshop_b = await _make_workshop(client, owner_b, organization_b["id"], "Org B session")
 
     follower = await _signup(client, f"follower_{uuid.uuid4()}@example.com")
     follow = await client.post(
@@ -243,9 +225,7 @@ async def test_unfollow_updates_the_following_filter(client: AsyncClient) -> Non
     """A workshop disappears from the filter once the caller unfollows."""
     owner_token = await _signup(client, f"owner_{uuid.uuid4()}@example.com")
     organization = await _make_organization(client, owner_token, "Unfollow Org")
-    workshop = await _make_workshop(
-        client, owner_token, organization["id"], "Unfollow session"
-    )
+    workshop = await _make_workshop(client, owner_token, organization["id"], "Unfollow session")
 
     follower = await _signup(client, f"follower_{uuid.uuid4()}@example.com")
     headers = _auth(follower)

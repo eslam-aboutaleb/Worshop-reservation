@@ -133,9 +133,7 @@ async def create_review(
             already reviewed this workshop.
     """
     workshop = (
-        await session.execute(
-            select(Workshop).where(Workshop.id == workshop_id)
-        )
+        await session.execute(select(Workshop).where(Workshop.id == workshop_id))
     ).scalar_one_or_none()
     if workshop is None or workshop.status != WORKSHOP_STATUS_PUBLISHED:
         raise WorkshopNotFoundError(str(workshop_id))
@@ -185,9 +183,8 @@ async def get_review_aggregate(
         ``None`` when the workshop has no reviews;
         otherwise it is rounded to two decimals.
     """
-    statement = (
-        select(func.avg(Review.rating), func.count(Review.id))
-        .where(Review.workshop_id == workshop_id)
+    statement = select(func.avg(Review.rating), func.count(Review.id)).where(
+        Review.workshop_id == workshop_id
     )
     average, count = (await session.execute(statement)).one()
     return (round(float(average), 2) if average is not None else None, int(count))

@@ -27,7 +27,6 @@ from datetime import UTC, datetime
 import structlog
 from fastapi import FastAPI
 from sqlalchemy import delete as sa_delete
-
 from ws_core.container import Container
 from ws_core.db import engine as db_engine
 from ws_core.errors import (
@@ -44,7 +43,6 @@ from ws_core.errors import (
     WorkshopNotFoundError,
     register_domain_handlers,
 )
-from ws_core.app import Plugin
 
 from ws_reservation.models.idempotency_key import IdempotencyKey
 from ws_reservation.routers import create_router
