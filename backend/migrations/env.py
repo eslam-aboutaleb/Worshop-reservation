@@ -2,9 +2,11 @@
 
 Wired for online migrations against its own async engine (built
 from the settings in `src.configuration.settings`). Imports every
-model via `src.models` so `autogenerate` can see them, but the
-initial migration is hand-written (the partial unique index's
-`postgresql_where` historically doesn't render reliably in
+model so `autogenerate` can see them: the core ``Base`` from
+``ws_core.db.base`` and the domain models from
+``ws_reservation.models`` (the full migration set ships inside the
+plugin). The initial migration is hand-written (the partial unique
+index's ``postgresql_where`` historically doesn't render reliably in
 autogenerate output).
 """
 
@@ -15,11 +17,23 @@ from alembic import context
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from src.configuration.settings import get_settings
-from src.models import Base  # noqa: F401  # import for metadata side effects
-from src.models.idempotency_key import IdempotencyKey  # noqa: F401
-from src.models.reservation import Reservation  # noqa: F401
-from src.models.workshop import Workshop  # noqa: F401
+# Importing the app's settings module registers the concrete
+# Settings with ws-core (the module calls ws_core.config.configure
+# at import time), so ws_core.config.get_settings() below resolves.
+import src.configuration.settings  # noqa: F401  # registers settings with ws-core
+from ws_core.config import get_settings
+from ws_core.db.base import Base  # noqa: F401  # import for metadata side effects
+from ws_reservation.models import (  # noqa: F401
+    IdempotencyKey,
+    Organization,
+    OrganizationFollow,
+    OrganizationMembership,
+    Reservation,
+    Review,
+    User,
+    WaitlistEntry,
+    Workshop,
+)
 
 config = context.config
 

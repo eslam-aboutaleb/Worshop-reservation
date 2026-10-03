@@ -7,5 +7,5 @@ export CORS_ORIGINS='["http://localhost"]'
 export AUTH_SECRET_KEY="test-secret-key-at-least-32-characters-long-for-tests"
 export ADMIN_EMAIL="${ADMIN_EMAIL:-eslamehababoutaleb@gmail.com}"
 exec .venv/bin/python -m pytest --tb=short -q --timeout=15 \
-  --deselect tests/test_workshops_router.py::test_sse_streams_initial_comment \
+  --deselect libs/reservation/tests/test_workshops_router.py::test_sse_streams_initial_comment \
   "$@"

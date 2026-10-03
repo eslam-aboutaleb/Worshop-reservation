@@ -20,7 +20,7 @@ from ws_core.db.engine import init_db
 from ws_core.logging import configure_logging
 
 from src.configuration.settings import get_settings
-from src.models.workshop import Workshop
+from ws_reservation.models import Workshop
 
 logger = structlog.get_logger(__name__)
 

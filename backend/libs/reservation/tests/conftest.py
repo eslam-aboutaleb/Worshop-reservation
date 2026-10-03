@@ -1,10 +1,31 @@
-"""Pytest configuration: live PostgreSQL with a per-test fresh workshop row.
+"""Shared fixtures for the ws-reservation plugin test suite.
 
-The suite talks to a real Postgres because the partial unique
-index and SELECT ... FOR UPDATE semantics are not reproducible on
-SQLite. Each test gets its own workshop via the `workshop` fixture,
-so concurrent test execution against the same database is still
-safe.
+Self-contained: builds the composed app via the core
+composition root with the reservation plugin mounted
+(``create_app(settings, plugins=[ReservationPlugin()])``),
+overrides the ``get_db`` dependency per test so the suite
+runs against its own session factory, and exposes the
+helpers the API-level tests need (``api_signup``,
+``auth_headers``, ``session_factory``) as fixtures so the
+suite has no import-time dependency on the application's
+test package.
+
+Environment defaults mirror ``run_tests.sh`` so the
+suite is runnable standalone (``pytest
+libs/reservation/tests``) as well as via the full
+``./run_tests.sh``.
+
+Fixture semantics mirror ``backend/tests/conftest.py``
+exactly: the suite talks to a real Postgres because the
+partial unique index and ``SELECT ... FOR UPDATE``
+semantics are not reproducible on SQLite. The
+``workshop`` fixture creates a capacity-1 workshop (the
+concurrency tests depend on exactly one successful
+reserve out of many concurrent attempts), ``workshop_id``
+creates a separate capacity-3 workshop for API behavior
+tests, and every fixture cleans up after itself so
+concurrent test execution against the same database is
+still safe.
 """
 
 import os
@@ -18,6 +39,17 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+from ws_core.app import create_app
+from ws_core.db.engine import get_db
+from ws_core.events import EventBus
+from ws_core.events.in_process import InProcessEventBus
+from ws_core.rate_limit import reset_rate_limiter
+from ws_core.realtime import set_realtime_bus
+from ws_core.realtime.in_process import InProcessRealtimeBus
+
+from src.configuration.settings import get_settings
+from ws_reservation import ReservationPlugin
+from ws_reservation.models import Workshop
 
 os.environ.setdefault(
     "DATABASE_URL",
@@ -30,17 +62,12 @@ os.environ.setdefault(
 )
 os.environ.setdefault("ADMIN_EMAIL", "eslamehababoutaleb@gmail.com")
 
-from ws_core.db.engine import get_db  # noqa: E402
-from ws_core.realtime import (  # noqa: E402
-    InProcessRealtimeBus,
-    set_realtime_bus,
-)
-
-from src.main import app  # noqa: E402
-from ws_reservation.models import Workshop  # noqa: E402
-
 _engine = create_async_engine(os.environ["DATABASE_URL"], echo=False, poolclass=NullPool)
 _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
+
+# The composed app: core infrastructure plus the
+# reservation domain plugin.
+app = create_app(get_settings(), plugins=[ReservationPlugin()])
 
 
 @pytest_asyncio.fixture
@@ -84,16 +111,14 @@ def _isolate_rate_limiter() -> None:
     ``(client IP, email)`` key. Resetting before each test
     makes every case start with a clean budget.
     """
-    from ws_core.rate_limit import reset_rate_limiter
-
     reset_rate_limiter()
 
 
 @pytest_asyncio.fixture
 async def workshop() -> AsyncGenerator[Workshop, None]:
-    """Insert a fresh workshop for the test and clean it up afterwards.
+    """Insert a fresh capacity-1 workshop for the test and clean it up afterwards.
 
-    Uses its own session (not the `session` fixture) so concurrent
+    Uses its own session (not the ``session`` fixture) so concurrent
     workers in the concurrency test get their own connections.
     """
     new_id, instance = await _create_workshop(title="Concurrency test workshop", max_capacity=1)
@@ -139,7 +164,7 @@ async def _delete_workshop(workshop_id: uuid.UUID) -> None:
 
 @pytest_asyncio.fixture
 async def client() -> AsyncGenerator[AsyncClient, None]:
-    """Yield an httpx AsyncClient wired to the FastAPI app.
+    """Yield an httpx AsyncClient wired to the composed app.
 
     The dependency override is installed before and removed after
     the yield, with a try/finally so a setup failure still cleans up
@@ -163,15 +188,26 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
         app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def event_bus() -> EventBus:
+    """A fresh in-process event bus for direct service calls."""
+    return InProcessEventBus()
 
 
-async def api_signup(
-    client: AsyncClient, *, email: str | None = None, full_name: str = "Test Attendee"
-) -> tuple[str, str]:
-    """Register an account through the public API.
+@pytest.fixture
+def session_factory() -> async_sessionmaker[AsyncSession]:
+    """Return the test session factory for direct DB access."""
+    return _session_factory
 
-    Returns ``(access_token, email)``. Creating a reservation requires
-    an authenticated account, so most write-path tests start here.
+
+@pytest_asyncio.fixture
+async def api_signup(client: AsyncClient):
+    """Return a callable that signs up a fresh account through the public API.
+
+    Returns:
+        An async callable ``(email=..., full_name=...) -> (token, email)``.
+        Creating a reservation requires an authenticated account, so most
+        write-path tests start here.
 
     Note that the ``client`` fixture keeps cookies between calls, so
     once ``api_signup`` has run every later request on that client
@@ -179,15 +215,26 @@ async def api_signup(
     passes an explicit ``Authorization`` header or calls
     ``client.cookies.clear()`` to force the anonymous path.
     """
-    email = email or f"user_{uuid.uuid4().hex}@example.com"
-    response = await client.post(
-        "/api/auth/signup",
-        json={"full_name": full_name, "email": email, "password": "Password123!"},
-    )
-    assert response.status_code == 201, response.text
-    return response.json()["access_token"], email
+
+    async def _api_signup(
+        *, email: str | None = None, full_name: str = "Test Attendee"
+    ) -> tuple[str, str]:
+        email = email or f"user_{uuid.uuid4().hex}@example.com"
+        response = await client.post(
+            "/api/auth/signup",
+            json={"full_name": full_name, "email": email, "password": "Password123!"},
+        )
+        assert response.status_code == 201, response.text
+        return response.json()["access_token"], email
+
+    return _api_signup
 
 
-def auth_headers(token: str, **extra: str) -> dict[str, str]:
-    """Return an ``Authorization`` bearer header plus any extras."""
-    return {"Authorization": f"Bearer {token}", **extra}
+@pytest.fixture
+def auth_headers():
+    """Return the bearer-header builder for API calls."""
+
+    def _auth_headers(token: str, **extra: str) -> dict[str, str]:
+        return {"Authorization": f"Bearer {token}", **extra}
+
+    return _auth_headers

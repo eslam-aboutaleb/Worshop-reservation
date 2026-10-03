@@ -14,4 +14,17 @@ that translates domain events into realtime broadcasts. The
 application becomes a thin composition root that supplies the
 ``Container`` (settings, engine, session factory, event bus,
 realtime bus, rate limiter).
+
+Usage
+-------
+
+    from ws_core.app import create_app
+    from ws_reservation import ReservationPlugin
+
+    app = create_app(settings, plugins=[ReservationPlugin()])
 """
+
+from ws_reservation.plugin import ReservationPlugin
+from ws_reservation.routers import create_router
+
+__all__ = ["ReservationPlugin", "create_router"]
