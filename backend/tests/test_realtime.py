@@ -1,9 +1,17 @@
-"""Tests for the in-process SSE pub/sub helpers.
+"""Tests for the realtime bus.
 
-The suite focuses on the small, easy-to-assert surface: subscriber
-registration, unsubscribe idempotency, and the serialization
-format. The slow-consumer drop behavior is covered so the
-"do not block the producer" invariant is locked in.
+The suite covers three layers:
+
+* the pure SSE serializer (``format_sse``),
+* the module-level facade (delegation to the
+  process-wide default bus), and
+* the in-process bus internals (subscriber
+  registration, unsubscribe idempotency, and the
+  slow-consumer drop behavior).
+
+The Redis adapter has its own suite
+(``test_realtime_redis.py``) that skips when no
+Redis is reachable.
 """
 
 import asyncio
@@ -12,7 +20,6 @@ import uuid
 
 import pytest
 from ws_core.realtime import (
-    _global_subscribers,
     format_sse,
     publish,
     subscribe,
@@ -20,6 +27,7 @@ from ws_core.realtime import (
     unsubscribe,
     unsubscribe_global,
 )
+from ws_core.realtime.in_process import InProcessRealtimeBus
 
 
 def test_format_sse_serializes_dict_to_data_line() -> None:
@@ -79,27 +87,29 @@ async def test_publish_delivers_to_workshop_scoped_subscriber_only() -> None:
 @pytest.mark.asyncio
 async def test_unsubscribe_global_is_idempotent() -> None:
     """Unsubscribe on an unknown queue is a no-op (no exception)."""
-    queue = await subscribe_global()
-    await unsubscribe_global(queue)
-    await unsubscribe_global(queue)  # second call must not raise
-    assert queue not in _global_subscribers
+    bus = InProcessRealtimeBus()
+    queue = await bus.subscribe_global()
+    await bus.unsubscribe_global(queue)
+    await bus.unsubscribe_global(queue)  # second call must not raise
+    assert queue not in bus._global_subscribers
 
 
 @pytest.mark.asyncio
 async def test_slow_consumer_is_dropped_not_blocked() -> None:
     """A full queue causes the publish to drop the event, not block."""
+    bus = InProcessRealtimeBus()
     queue: asyncio.Queue = asyncio.Queue(maxsize=1)
     queue.put_nowait({"existing": True})
     # Hand-register the saturated queue so the publisher sees it.
-    from ws_core.realtime import _lock
-
-    async with _lock:
-        _global_subscribers.add(queue)
+    async with bus._lock:
+        bus._global_subscribers.add(queue)
     try:
         # Publishing should not block even though the queue is full.
-        await asyncio.wait_for(publish(uuid.uuid4(), {"type": "x"}), timeout=0.5)
+        await asyncio.wait_for(
+            bus.publish(uuid.uuid4(), {"type": "x"}), timeout=0.5
+        )
         # The original event is still there; the new one was dropped.
         assert await queue.get() == {"existing": True}
     finally:
-        async with _lock:
-            _global_subscribers.discard(queue)
+        async with bus._lock:
+            bus._global_subscribers.discard(queue)

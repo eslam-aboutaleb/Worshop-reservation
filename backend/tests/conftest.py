@@ -31,6 +31,10 @@ os.environ.setdefault(
 os.environ.setdefault("ADMIN_EMAIL", "eslamehababoutaleb@gmail.com")
 
 from ws_core.db.engine import get_db  # noqa: E402
+from ws_core.realtime import (  # noqa: E402
+    InProcessRealtimeBus,
+    set_realtime_bus,
+)
 
 from src.main import app  # noqa: E402
 from src.models.workshop import Workshop  # noqa: E402
@@ -56,17 +60,17 @@ async def session() -> AsyncGenerator[AsyncSession, None]:
 
 @pytest.fixture(autouse=True)
 def _isolate_sse_state() -> None:
-    """Drop leftover SSE subscribers between tests.
+    """Install a fresh in-process realtime bus between tests.
 
-    The realtime module keeps module-level state
-    (``_global_subscribers``) that survives across tests. A test
-    that subscribes via ``subscribe_global`` and exits without
-    unsubscribing would otherwise leak a queue that ``publish``
-    would try to write to, eventually causing the runner to hang.
+    The default realtime bus holds subscriber state (queues
+    registered by SSE endpoints) that survives across tests.
+    A test that subscribes via ``subscribe_global`` and exits
+    without unsubscribing would otherwise leak a queue that
+    ``publish`` would try to write to, eventually causing the
+    runner to hang. Replacing the whole bus gives every test
+    a clean subscriber set.
     """
-    from ws_core.realtime import _global_subscribers
-
-    _global_subscribers.clear()
+    set_realtime_bus(InProcessRealtimeBus())
 
 
 @pytest.fixture(autouse=True)
@@ -192,8 +196,16 @@ def auth_headers(token: str, **extra: str) -> dict[str, str]:
 
 @pytest.fixture
 def mock_broker(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    import ws_core.realtime
+    """Replace the app event bus's ``publish`` with a mock.
+
+    Services publish domain events through the app event bus
+    (``src.events``); patching its ``publish`` lets a test
+    assert on the events a flow emitted without a live bus.
+    The realtime projector is subscribed to the same bus, so
+    a mocked ``publish`` also suppresses real SSE delivery.
+    """
+    from src.events import get_event_bus
 
     mock = MagicMock()
-    monkeypatch.setattr(ws_core.realtime, "publish", mock)
+    monkeypatch.setattr(get_event_bus(), "publish", mock)
     return mock

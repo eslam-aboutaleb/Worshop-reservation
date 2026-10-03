@@ -51,10 +51,16 @@ from ws_core.errors import (
     register_domain_handlers,
 )
 from ws_core.logging import configure_logging
+from ws_core.realtime.factory import (
+    create_realtime_bus,
+    get_realtime_bus,
+    set_realtime_bus,
+)
 
 from src.api.routers import router as api_router
 from src.configuration.settings import get_settings
 from src.models.idempotency_key import IdempotencyKey
+from src.realtime_projector import register_realtime_projector
 
 settings = get_settings()
 
@@ -97,6 +103,14 @@ def create_app() -> FastAPI:
     # is configured exactly once, after settings are registered with
     # ws-core, and so re-configuration never leaks a connection pool.
     init_db(settings)
+    # Select the realtime bus from configuration (Redis when
+    # REDIS_URL is set, in-process otherwise) and install it as the
+    # process-wide default the module-level ws_core.realtime helpers
+    # delegate to.
+    set_realtime_bus(create_realtime_bus(settings))
+    # Translate domain events onto the realtime bus. Idempotent, so
+    # repeated create_app() calls cannot double-subscribe.
+    register_realtime_projector()
 
     app = FastAPI(
         title="Workshop Reservations API",
@@ -178,6 +192,32 @@ def create_app() -> FastAPI:
                 await session.commit()
         except Exception:  # pragma: no cover - defensive
             logger.exception("idempotency_sweep_failed")
+
+    @app.on_event("startup")
+    async def start_realtime_bus() -> None:
+        """Start the realtime bus's background delivery.
+
+        A no-op for the in-process bus; the Redis adapter
+        uses it to spawn its pub/sub listener. Best-effort:
+        a failure here must never block startup - the bus
+        still delivers locally.
+        """
+        try:
+            await get_realtime_bus().start()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("realtime_bus_start_failed")
+
+    @app.on_event("shutdown")
+    async def stop_realtime_bus() -> None:
+        """Stop the realtime bus and release its resources.
+
+        Cancels the Redis listener and closes the connection
+        when the Redis adapter is in use; a no-op otherwise.
+        """
+        try:
+            await get_realtime_bus().stop()
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("realtime_bus_stop_failed")
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

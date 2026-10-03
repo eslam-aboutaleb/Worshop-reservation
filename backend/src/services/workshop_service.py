@@ -36,8 +36,15 @@ from ws_core.errors import (
     WorkshopHasActiveReservationsError,
     WorkshopNotFoundError,
 )
-from ws_core.realtime import publish
 
+from src.events import (
+    WorkshopCancelled,
+    WorkshopCreated,
+    WorkshopDeleted,
+    WorkshopPublished,
+    WorkshopUpdated,
+    get_event_bus,
+)
 from src.models.organization import OrganizationFollow, OrganizationMembership
 from src.models.reservation import RESERVATION_STATUS_ACTIVE, Reservation
 from src.models.workshop import (
@@ -284,9 +291,8 @@ async def create_workshop(
     await session.commit()
     await session.refresh(workshop)
     response = _workshop_to_response(workshop, available_spots=workshop.max_capacity)
-    await publish(
-        workshop.id,
-        {"workshop_id": str(workshop.id), "type": "workshop_created"},
+    await get_event_bus().publish(
+        WorkshopCreated(workshop_id=workshop.id),
     )
     logger.info("workshop.created", workshop_id=str(workshop.id))
     return response
@@ -364,9 +370,8 @@ async def update_workshop(
         workshop.max_capacity - await count_active_reservations(session, workshop_id),
         0,
     )
-    await publish(
-        workshop.id,
-        {"workshop_id": str(workshop.id), "type": "workshop_updated"},
+    await get_event_bus().publish(
+        WorkshopUpdated(workshop_id=workshop.id),
     )
     logger.info("workshop.updated", workshop_id=str(workshop_id))
     return _workshop_to_response(workshop, available_spots)
@@ -398,9 +403,8 @@ async def publish_workshop(session: AsyncSession, workshop_id: uuid.UUID) -> Wor
         workshop.max_capacity - await count_active_reservations(session, workshop_id),
         0,
     )
-    await publish(
-        workshop.id,
-        {"workshop_id": str(workshop.id), "type": "workshop_published"},
+    await get_event_bus().publish(
+        WorkshopPublished(workshop_id=workshop.id),
     )
     logger.info("workshop.published", workshop_id=str(workshop_id))
     return _workshop_to_response(workshop, available_spots)
@@ -445,9 +449,8 @@ async def cancel_workshop(session: AsyncSession, workshop_id: uuid.UUID) -> Work
         workshop.max_capacity - await count_active_reservations(session, workshop_id),
         0,
     )
-    await publish(
-        workshop.id,
-        {"workshop_id": str(workshop.id), "type": "workshop_cancelled"},
+    await get_event_bus().publish(
+        WorkshopCancelled(workshop_id=workshop.id),
     )
     logger.info("workshop.cancelled", workshop_id=str(workshop_id))
     return _workshop_to_response(workshop, available_spots)
@@ -486,7 +489,9 @@ async def delete_workshop(session: AsyncSession, workshop_id: uuid.UUID) -> None
     await cancel_waitlist_for_workshop(session, workshop_id)
     await session.execute(delete(Workshop).where(Workshop.id == workshop_id))
     await session.commit()
-    await publish(workshop_id, {"workshop_id": str(workshop_id), "type": "workshop_deleted"})
+    await get_event_bus().publish(
+        WorkshopDeleted(workshop_id=workshop_id),
+    )
     logger.info("workshop.deleted", workshop_id=str(workshop_id))
 
 

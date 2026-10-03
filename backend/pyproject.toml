@@ -24,6 +24,7 @@ dependencies = [
     "alembic>=1.13.0",
     "pydantic[email]>=2.7.0",
     "pydantic-settings>=2.3.0",
+    "redis>=5.0.0",
     "structlog>=24.0.0",
     "ws-core",
 ]

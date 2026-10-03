@@ -30,11 +30,12 @@ system are enforced:
   ``user_id`` (create requires authentication) and a cancel is
   refused unless that ``user_id`` matches the caller.
 
-Every successful mutation publishes an event on the SSE channel via
-``realtime.publish`` so connected browsers see live updates. Those
-events carry counts only: the channel is unauthenticated, so no
-reservation identifier, email, or booking code is ever broadcast on
-it.
+Every successful mutation publishes a domain event on the
+app event bus (``src.events``); the realtime projector
+broadcasts it so connected browsers see live updates.
+Those events carry counts only: the channel is
+unauthenticated, so no reservation identifier, email,
+or booking code is ever broadcast on it.
 """
 
 import secrets
@@ -54,8 +55,16 @@ from ws_core.errors import (
     WorkshopFullError,
     WorkshopNotFoundError,
 )
-from ws_core.realtime import publish
 
+from src.events import (
+    ReservationCancelled,
+    ReservationCreated,
+    WaitlistCancelled,
+    WaitlistJoined,
+    WaitlistLeft,
+    WaitlistPromoted,
+    get_event_bus,
+)
 from src.models.idempotency_key import IdempotencyKey
 from src.models.reservation import (
     RESERVATION_STATUS_ACTIVE,
@@ -468,21 +477,22 @@ async def _broadcast_creation(
     reservation: Reservation,
     active_count_before_insert: int,
 ) -> None:
-    """Publish the ``reservation_created`` SSE event.
+    """Publish the ``reservation_created`` domain event.
 
     ``active_count_before_insert`` is the active count observed
     while holding the row lock; the just-inserted reservation is
     not included in that count, so the post-insert available is
     ``max_capacity - (active_count + 1)`` clamped to zero.
     """
-    await publish(
-        reservation.workshop_id,
-        {
-            "workshop_id": str(reservation.workshop_id),
-            "type": "reservation_created",
-            "available_spots": max(workshop.max_capacity - active_count_before_insert - 1, 0),
-            "reservation": _reservation_to_dict(reservation),
-        },
+    await get_event_bus().publish(
+        ReservationCreated(
+            workshop_id=reservation.workshop_id,
+            available_spots=max(
+                workshop.max_capacity - active_count_before_insert - 1,
+                0,
+            ),
+            reservation=_reservation_to_dict(reservation),
+        )
     )
 
 
@@ -595,22 +605,18 @@ async def cancel_reservation(
 
     await session.commit()
 
-    await publish(
-        workshop_id,
-        {
-            "workshop_id": str(workshop_id),
-            "type": "reservation_cancelled",
-            "available_spots": spots_after_cancel,
-        },
+    await get_event_bus().publish(
+        ReservationCancelled(
+            workshop_id=workshop_id,
+            available_spots=spots_after_cancel,
+        )
     )
     if promoted is not None:
-        await publish(
-            workshop_id,
-            {
-                "workshop_id": str(workshop_id),
-                "type": "waitlist_promoted",
-                "available_spots": spots_after_promotion,
-            },
+        await get_event_bus().publish(
+            WaitlistPromoted(
+                workshop_id=workshop_id,
+                available_spots=spots_after_promotion,
+            )
         )
     logger.info(
         "reservation.cancelled",
@@ -889,23 +895,15 @@ async def leave_waitlist(
 
 async def _broadcast_waitlist_join(workshop: Workshop) -> None:
     """Publish a ``waitlist_joined`` event with the current queue depth."""
-    await publish(
-        workshop.id,
-        {
-            "workshop_id": str(workshop.id),
-            "type": "waitlist_joined",
-        },
+    await get_event_bus().publish(
+        WaitlistJoined(workshop_id=workshop.id),
     )
 
 
 async def _broadcast_waitlist_leave(workshop_id: uuid.UUID) -> None:
     """Publish a ``waitlist_left`` event."""
-    await publish(
-        workshop_id,
-        {
-            "workshop_id": str(workshop_id),
-            "type": "waitlist_left",
-        },
+    await get_event_bus().publish(
+        WaitlistLeft(workshop_id=workshop_id),
     )
 
 
@@ -923,11 +921,7 @@ async def cancel_waitlist_for_workshop(session: AsyncSession, workshop_id: uuid.
     )
     count = result.rowcount or 0
     if count:
-        await publish(
-            workshop_id,
-            {
-                "workshop_id": str(workshop_id),
-                "type": "waitlist_cancelled",
-            },
+        await get_event_bus().publish(
+            WaitlistCancelled(workshop_id=workshop_id),
         )
     return int(count)
