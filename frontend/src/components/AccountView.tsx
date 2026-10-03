@@ -69,9 +69,7 @@ export function AccountView({ onClose }: Props) {
    * role promotion to `organizer` is reflected
    * immediately.
    */
-  async function handleCreateOrganization(
-    event: React.FormEvent<HTMLFormElement>,
-  ) {
+  async function handleCreateOrganization(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setOrgFormError(null);
     const name = orgName.trim();
@@ -210,15 +208,11 @@ export function AccountView({ onClose }: Props) {
           </section>
         )}
         <section id="account-organizations" className="mt-10">
-          <p className="text-xs font-bold uppercase tracking-[.18em] text-coral">
-            Organization
-          </p>
-          <h2 className="display-font mt-2 text-3xl font-bold">
-            Create an organization
-          </h2>
+          <p className="text-xs font-bold uppercase tracking-[.18em] text-coral">Organization</p>
+          <h2 className="display-font mt-2 text-3xl font-bold">Create an organization</h2>
           <p className="mt-2 text-sm text-ink/70">
-            Run workshops under a name your attendees can follow. You become
-            the organization&apos;s first owner and an organizer.
+            Run workshops under a name your attendees can follow. You become the organization&apos;s
+            first owner and an organizer.
           </p>
           {createdOrg && (
             <div
@@ -236,16 +230,11 @@ export function AccountView({ onClose }: Props) {
               </p>
               <p className="mt-2 text-sm text-ink/75">
                 <span className="text-ink/60">Slug:</span>{" "}
-                <span
-                  id="account-created-organization-slug"
-                  className="font-mono font-semibold"
-                >
+                <span id="account-created-organization-slug" className="font-mono font-semibold">
                   {createdOrg.slug}
                 </span>
               </p>
-              <p className="mt-2 text-sm font-semibold text-teal">
-                You own this organization.
-              </p>
+              <p className="mt-2 text-sm font-semibold text-teal">You own this organization.</p>
             </div>
           )}
           <form

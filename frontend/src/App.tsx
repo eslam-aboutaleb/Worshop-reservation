@@ -71,7 +71,10 @@ export function App() {
   // Route guards. Signed-in routes send anonymous visitors
   // back to the list with the auth modal opened; the admin
   // surface additionally requires the super-admin, so a
-  // signed-in non-admin is redirected home.
+  // signed-in non-admin is redirected home. The organizer
+  // dashboard requires the organizer platform role (or the
+  // super-admin's `admin` role); a signed-in attendee is
+  // redirected home.
   useEffect(() => {
     if (isRestoring) return;
     if (route.name === "account" || route.name === "tickets") {
@@ -82,6 +85,13 @@ export function App() {
       if (!user) {
         navigate("/?auth=sign-in");
       } else if (!user.is_admin) {
+        navigate("/");
+      }
+    }
+    if (route.name === "organizer") {
+      if (!user) {
+        navigate("/?auth=sign-in");
+      } else if (user.role !== "organizer" && user.role !== "admin") {
         navigate("/");
       }
     }
@@ -132,6 +142,11 @@ export function App() {
     return <AdminView onClose={navigateHome} />;
   }
 
+  if (route.name === "organizer") {
+    if (!user || (user.role !== "organizer" && user.role !== "admin")) return null;
+    return <OrganizerView onClose={navigateHome} />;
+  }
+
   if (route.name === "workshop") {
     return (
       <WorkshopDetailView
@@ -153,6 +168,7 @@ export function App() {
         onOpenAccount={() => navigate("/account")}
         onOpenTickets={() => navigate("/tickets")}
         onOpenAdmin={() => navigate("/admin")}
+        onOpenOrganizer={() => navigate("/organizer")}
         authRequested={route.authRequested}
         refreshKey={catalogRevision}
       />

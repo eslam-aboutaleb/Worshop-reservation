@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ws-reservation"
+version = "0.1.0"
+description = "Pluggable reservation domain plugin: workshops, reservations, waitlist, organizations, reviews."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "pydantic[email]>=2.7.0",
+    "structlog>=24.0.0",
+]
+
+[tool.uv.sources]
+ws-core = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["ws_reservation"]

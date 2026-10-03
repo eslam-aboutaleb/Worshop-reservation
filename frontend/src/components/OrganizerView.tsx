@@ -189,9 +189,7 @@ export function OrganizerView({ onClose }: Props) {
         <p className="mt-12 text-sm font-bold uppercase tracking-[.2em] text-coral">
           Organizer platform
         </p>
-        <h1 className="display-font mt-3 text-5xl font-bold tracking-[-.06em]">
-          Your dashboard
-        </h1>
+        <h1 className="display-font mt-3 text-5xl font-bold tracking-[-.06em]">Your dashboard</h1>
         <p className="mt-4 text-ink/70">
           Booking totals, attendee lists, and a quick way to add a session.
         </p>
@@ -205,18 +203,14 @@ export function OrganizerView({ onClose }: Props) {
             id="organizer-stats-total-bookings-card"
             className="rounded-3xl border border-line bg-paper/80 p-6"
           >
-            <p className="text-xs font-bold uppercase tracking-wider text-ink/60">
-              Total bookings
-            </p>
+            <p className="text-xs font-bold uppercase tracking-wider text-ink/60">Total bookings</p>
             <p
               id="organizer-stats-total-bookings"
               className="display-font mt-2 text-4xl font-bold text-teal"
             >
               {stats ? String(stats.total_bookings) : "—"}
             </p>
-            <p className="mt-1 text-sm text-ink/70">
-              Active reservations across your sessions.
-            </p>
+            <p className="mt-1 text-sm text-ink/70">Active reservations across your sessions.</p>
           </div>
           <div
             id="organizer-stats-upcoming-sessions-card"
@@ -241,9 +235,7 @@ export function OrganizerView({ onClose }: Props) {
           id="organizer-quick-create"
           className="mt-10 rounded-3xl border border-teal/30 bg-teal-light/45 p-6 sm:p-8"
         >
-          <p className="text-xs font-bold uppercase tracking-[.18em] text-teal">
-            Quick create
-          </p>
+          <p className="text-xs font-bold uppercase tracking-[.18em] text-teal">Quick create</p>
           <h2 className="display-font mt-2 text-3xl font-bold">New session</h2>
           <p className="mt-2 text-sm text-ink/70">
             A platform-managed session, bookable from the calendar immediately.
@@ -274,8 +266,7 @@ export function OrganizerView({ onClose }: Props) {
                 className="mt-2 w-full rounded-xl border border-line bg-white px-4 py-3"
               />
               <span className="mt-1 block text-xs font-normal text-ink/70">
-                Interpreted in your local timezone. Must be later today or in the
-                future.
+                Interpreted in your local timezone. Must be later today or in the future.
               </span>
             </label>
             <label className="text-sm font-semibold">
@@ -353,12 +344,8 @@ export function OrganizerView({ onClose }: Props) {
         </section>
 
         <section className="mt-10">
-          <p className="text-xs font-bold uppercase tracking-[.18em] text-teal">
-            Sessions
-          </p>
-          <h2 className="display-font mt-2 text-3xl font-bold">
-            Your workshops
-          </h2>
+          <p className="text-xs font-bold uppercase tracking-[.18em] text-teal">Sessions</p>
+          <h2 className="display-font mt-2 text-3xl font-bold">Your workshops</h2>
           <p className="mt-2 text-sm text-ink/70">
             Every session you manage, with its booking count and attendee list.
           </p>
@@ -448,9 +435,7 @@ export function OrganizerView({ onClose }: Props) {
                               className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-paper/70 px-4 py-3"
                             >
                               <div className="min-w-0">
-                                <p className="text-sm font-semibold">
-                                  {attendee.attendee_name}
-                                </p>
+                                <p className="text-sm font-semibold">{attendee.attendee_name}</p>
                                 <p className="truncate text-xs text-ink/60">
                                   {attendee.attendee_email}
                                 </p>

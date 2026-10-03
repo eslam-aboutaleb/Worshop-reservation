@@ -16,6 +16,12 @@ export interface WorkshopListFilters {
   category?: string;
   /** Upcoming (the default), past, or all sessions. */
   state?: "upcoming" | "past" | "all";
+  /**
+   * Restrict to workshops from organizations the
+   * signed-in caller follows. Requires a session;
+   * an anonymous request is a 401.
+   */
+  following?: boolean;
 }
 
 /**
@@ -61,10 +67,11 @@ export function useWorkshopList(refreshKey: number, filters: WorkshopListFilters
         q: debouncedQ || undefined,
         category: filters.category || undefined,
         state: filters.state ?? "upcoming",
+        following: filters.following,
         limit: PAGE_SIZE,
         offset,
       }),
-    [debouncedQ, filters.category, filters.state],
+    [debouncedQ, filters.category, filters.state, filters.following],
   );
 
   useEffect(() => {

@@ -425,9 +425,7 @@ export async function createOrganization(
  * @returns The organization with its refreshed
  *   `followers_count`.
  */
-export async function followOrganization(
-  organizationId: string,
-): Promise<Organization> {
+export async function followOrganization(organizationId: string): Promise<Organization> {
   return request<Organization>(`/organizations/${organizationId}/follow`, {
     method: "POST",
   });
@@ -445,9 +443,7 @@ export async function followOrganization(
  * @returns The organization with its refreshed
  *   `followers_count`.
  */
-export async function unfollowOrganization(
-  organizationId: string,
-): Promise<Organization> {
+export async function unfollowOrganization(organizationId: string): Promise<Organization> {
   return request<Organization>(`/organizations/${organizationId}/follow`, {
     method: "DELETE",
   });

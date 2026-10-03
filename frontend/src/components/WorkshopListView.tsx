@@ -22,7 +22,7 @@ import { useState } from "react";
 import { useAuth } from "../features/auth/AuthContext";
 import { useWorkshopList } from "../features/workshops/hooks/useWorkshopList";
 import { AuthPanel } from "./AuthPanel";
-import { useToastError } from "./Toast";
+import { useToast, useToastError } from "./Toast";
 import { formatDate, formatTime } from "../utils/formatters";
 
 /**
@@ -52,6 +52,8 @@ interface Props {
   onOpenTickets: () => void;
   /** Opens the admin session manager (admin only). */
   onOpenAdmin: () => void;
+  /** Opens the organizer dashboard (organizers only). */
+  onOpenOrganizer: () => void;
   /** When `true`, the auth modal opens on first render. */
   authRequested?: boolean;
   /** Incremented after workshop create/delete events. */
@@ -70,21 +72,42 @@ export function WorkshopListView({
   onOpenAccount,
   onOpenTickets,
   onOpenAdmin,
+  onOpenOrganizer,
   authRequested,
   refreshKey,
 }: Props) {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [state, setState] = useState<(typeof STATE_TABS)[number]["value"]>("upcoming");
+  const [following, setFollowing] = useState(false);
   const { workshops, total, error, setError, loading, loadingMore, loadMore, hasMore } =
     useWorkshopList(refreshKey, {
       q: searchTerm,
       category: category ?? undefined,
       state,
+      following,
     });
   useToastError(error, () => setError(null));
   const now = new Date();
+
+  /**
+   * Toggle the "Following" discovery filter.
+   *
+   * The filter is signed-in-only: the backend answers
+   * an anonymous `following=true` request with a 401,
+   * so an anonymous click is intercepted here with a
+   * toast prompting sign-in instead of firing a
+   * request that is guaranteed to fail.
+   */
+  function handleToggleFollowing() {
+    if (!user) {
+      showToast("Sign in to see workshops from organizations you follow.", "info");
+      return;
+    }
+    setFollowing((value) => !value);
+  }
 
   return (
     <div id="workshop-list-view" className="min-h-screen">
@@ -133,6 +156,16 @@ export function WorkshopListView({
               className="hidden text-xs font-bold uppercase tracking-wider text-teal hover:text-coral sm:block"
             >
               Admin
+            </button>
+          )}
+          {(user?.role === "organizer" || user?.role === "admin") && (
+            <button
+              id="organizer-nav-button"
+              type="button"
+              onClick={onOpenOrganizer}
+              className="hidden text-xs font-bold uppercase tracking-wider text-teal hover:text-coral sm:block"
+            >
+              Organizer
             </button>
           )}
           <AuthPanel initialOpen={authRequested} />
@@ -267,6 +300,25 @@ export function WorkshopListView({
                 {topic}
               </button>
             ))}
+            <button
+              id="workshop-list-following-chip"
+              type="button"
+              aria-pressed={following}
+              onClick={handleToggleFollowing}
+              title={
+                user
+                  ? "Show workshops from organizations you follow"
+                  : "Sign in to filter by followed organizations"
+              }
+              className={
+                "rounded-full border px-3.5 py-1.5 text-sm font-semibold transition " +
+                (following
+                  ? "border-coral bg-coral text-white"
+                  : "border-line bg-paper/80 text-ink/75 hover:border-coral/60 hover:text-coral")
+              }
+            >
+              Following
+            </button>
           </div>
         </div>
         {loading ? (

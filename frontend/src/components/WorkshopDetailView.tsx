@@ -32,11 +32,19 @@
  */
 import { useEffect, useState } from "react";
 
-import { ApiError, joinWaitlist, leaveWaitlist } from "../api";
+import {
+  ApiError,
+  createReview,
+  followOrganization,
+  joinWaitlist,
+  leaveWaitlist,
+  listWorkshops,
+  unfollowOrganization,
+} from "../api";
 import { useAuth } from "../features/auth/AuthContext";
 import { useWorkshopDetail } from "../features/workshops/hooks/useWorkshopDetail";
 import type { Reservation, SSEEvent } from "../types";
-import { useToast, useToastError } from "./Toast";
+import { getToastErrorMessage, useToast, useToastError } from "./Toast";
 import { formatDate, formatTime } from "../utils/formatters";
 import { AuthPanel } from "./AuthPanel";
 import { ConfirmationPanel } from "./ConfirmationPanel";
@@ -162,6 +170,22 @@ export function WorkshopDetailView({
   const [pendingLeaveWaitlist, setPendingLeaveWaitlist] = useState(false);
   const [leavingWaitlist, setLeavingWaitlist] = useState(false);
 
+  // Follow state. `following` is null until the indirect
+  // derivation (the "following" list filter) resolves;
+  // `followersCount` is only known after a follow /
+  // unfollow call because the detail payload does not
+  // carry it.
+  const [following, setFollowing] = useState<boolean | null>(null);
+  const [followersCount, setFollowersCount] = useState<number | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followMessage, setFollowMessage] = useState<string | null>(null);
+
+  // Review form state.
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
   // Restore the persisted waitlist entry id when the workshop
   // changes so "Leave waitlist" works across reloads.
   useEffect(() => {
@@ -177,6 +201,113 @@ export function WorkshopDetailView({
       saveWaitlistEntryId(workshopId, null);
     }
   }, [detail, workshopId]);
+
+  // Derive whether the caller already follows this workshop's
+  // organization. There is no GET /organizations/{id} endpoint,
+  // so the only derivation available is the "following" list
+  // filter: fetch the caller's followed-organization workshops
+  // and check whether any item belongs to this organization.
+  useEffect(() => {
+    const organizationId = detail?.organization_id;
+    if (!user || !organizationId) {
+      setFollowing(null);
+      setFollowersCount(null);
+      return;
+    }
+    let active = true;
+    listWorkshops({ following: true, limit: 100 })
+      .then((envelope) => {
+        if (!active) return;
+        setFollowing(envelope.items.some((item) => item.organization_id === organizationId));
+      })
+      .catch(() => {
+        // The derivation failed; assume "not following". Both
+        // endpoints are idempotent, so a wrong guess self-
+        // corrects on the first toggle.
+        if (active) setFollowing(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user, detail?.organization_id]);
+
+  /**
+   * Toggle the follow state for this workshop's organization.
+   *
+   * The response carries the refreshed `followers_count`,
+   * which becomes the displayed count. A member cannot
+   * follow their own organization (409
+   * `cannot_follow_own_organization`); that case renders
+   * friendly inline copy instead of a toast.
+   */
+  async function handleFollowToggle() {
+    const organizationId = detail?.organization_id;
+    if (!user || !organizationId || following === null) return;
+    setFollowBusy(true);
+    setFollowMessage(null);
+    try {
+      if (following) {
+        const updated = await unfollowOrganization(organizationId);
+        setFollowersCount(updated.followers_count);
+        setFollowing(false);
+        showToast("You unfollowed this organization.", "info");
+      } else {
+        const updated = await followOrganization(organizationId);
+        setFollowersCount(updated.followers_count);
+        setFollowing(true);
+        showToast("You're now following this organization.", "success");
+      }
+    } catch (requestError) {
+      if (
+        requestError instanceof ApiError &&
+        requestError.code === "cannot_follow_own_organization"
+      ) {
+        setFollowMessage("You're a member of this organization.");
+      } else {
+        showToast(getToastErrorMessage(requestError), "error");
+      }
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
+  /**
+   * Post a review for this workshop.
+   *
+   * The backend is authoritative on eligibility (a held
+   * reservation and an ended session) and on the
+   * one-review-per-user rule; both 409s render friendly
+   * inline copy. On success the detail is refreshed so
+   * the aggregate and the review list update.
+   */
+  async function handleSubmitReview(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setReviewError(null);
+    setReviewSubmitting(true);
+    try {
+      await createReview(workshopId, reviewRating, reviewText.trim());
+      setReviewText("");
+      setReviewRating(5);
+      await refresh();
+      showToast("Review posted. Thanks for the feedback!", "success");
+    } catch (requestError) {
+      if (requestError instanceof ApiError) {
+        if (requestError.code === "review_not_eligible") {
+          setReviewError(
+            "Reviews open after the session ends, for attendees who held a reservation.",
+          );
+          return;
+        }
+        if (requestError.code === "review_already_exists") {
+          setReviewError("You've already reviewed this session.");
+          return;
+        }
+      }
+      showToast(getToastErrorMessage(requestError), "error");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }
 
   async function handleJoinWaitlist() {
     if (!user) {
@@ -265,6 +396,15 @@ export function WorkshopDetailView({
   const hasSeat = detail.reservations.length > 0;
   const now = new Date();
   const ended = detail.ends_at !== null && new Date(detail.ends_at) < now;
+  // Review eligibility mirrors the backend gate: the
+  // session has ended (`ends_at`, falling back to
+  // `starts_at` when there is no explicit end) and
+  // the caller holds a reservation on the workshop.
+  // The backend remains authoritative — the 409s are
+  // handled with friendly inline copy.
+  const sessionEnded = new Date(detail.ends_at ?? detail.starts_at) < now;
+  const hasReviewed = user !== null && detail.reviews.some((review) => review.user_id === user.id);
+  const canReview = sessionEnded && hasSeat && !hasReviewed;
   const registrationDeadline = detail.registration_closes_at ?? detail.starts_at;
   const registrationClosed = new Date(registrationDeadline) < now;
   const statusLabel = ended
@@ -396,7 +536,50 @@ export function WorkshopDetailView({
                 Registration closes {formatDate(detail.registration_closes_at)}
               </span>
             )}
+            {detail.rating_average !== null && detail.rating_count > 0 && (
+              <span
+                id="workshop-detail-rating"
+                className="rounded-full bg-sand px-3 py-1 text-sm font-semibold text-ink/75"
+              >
+                {detail.rating_average.toFixed(1)} · {detail.rating_count}{" "}
+                {detail.rating_count === 1 ? "review" : "reviews"}
+              </span>
+            )}
           </div>
+          {detail.organization_id && user && (
+            <div
+              id={`follow-controls-${workshopId}`}
+              className="mt-4 flex flex-wrap items-center gap-3"
+            >
+              <button
+                id={`follow-button-${workshopId}`}
+                type="button"
+                disabled={followBusy || following === null}
+                onClick={() => void handleFollowToggle()}
+                className={
+                  following
+                    ? "rounded-full bg-teal px-4 py-2 text-xs font-bold text-white hover:bg-ink disabled:opacity-60"
+                    : "rounded-full border border-teal px-4 py-2 text-xs font-bold text-teal hover:bg-teal hover:text-white disabled:opacity-60"
+                }
+              >
+                {followBusy ? "Updating..." : following ? "Following ✓" : "Follow"}
+              </button>
+              {followersCount !== null && (
+                <span id={`followers-count-${workshopId}`} className="text-sm text-ink/70">
+                  {followersCount} {followersCount === 1 ? "follower" : "followers"}
+                </span>
+              )}
+              {followMessage && (
+                <span
+                  id={`follow-message-${workshopId}`}
+                  role="status"
+                  className="text-sm font-semibold text-teal"
+                >
+                  {followMessage}
+                </span>
+              )}
+            </div>
+          )}
           {detail.description && (
             <p
               id="workshop-detail-description"
@@ -576,6 +759,115 @@ export function WorkshopDetailView({
                     {busyReservationId === reservation.id ? "Cancelling..." : "Cancel"}
                   </button>
                   <span className="sr-only">Reservation {index + 1}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section id="workshop-detail-reviews" className="mt-14">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-5">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-[.18em] text-teal">Reviews</p>
+              <h2 className="display-font mt-2 text-3xl font-bold tracking-tight">
+                What attendees say
+              </h2>
+            </div>
+            {detail.rating_average !== null && (
+              <span id="workshop-detail-rating-aggregate" className="text-sm text-ink/70">
+                {detail.rating_average.toFixed(1)} · {detail.rating_count}{" "}
+                {detail.rating_count === 1 ? "review" : "reviews"}
+              </span>
+            )}
+          </div>
+          {canReview && (
+            <form
+              id="review-form"
+              onSubmit={handleSubmitReview}
+              className="mt-6 rounded-3xl border border-line bg-paper/80 p-6"
+            >
+              <p className="text-sm font-semibold">Review this session</p>
+              <div role="radiogroup" aria-label="Rating" className="mt-3 flex gap-2">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    id={`review-rating-${star}`}
+                    type="button"
+                    role="radio"
+                    aria-checked={reviewRating === star}
+                    onClick={() => setReviewRating(star)}
+                    className={
+                      "grid h-10 w-10 place-items-center rounded-full border text-sm font-bold transition " +
+                      (reviewRating === star
+                        ? "border-teal bg-teal text-white"
+                        : "border-line bg-white text-ink/75 hover:border-teal/60 hover:text-teal")
+                    }
+                  >
+                    {star}
+                  </button>
+                ))}
+              </div>
+              <label htmlFor="review-text" className="sr-only">
+                Your review (optional)
+              </label>
+              <textarea
+                id="review-text"
+                rows={3}
+                maxLength={4000}
+                value={reviewText}
+                onChange={(event) => setReviewText(event.target.value)}
+                placeholder="What did you take away?"
+                className="mt-3 w-full rounded-xl border border-line bg-white px-4 py-3"
+              />
+              <button
+                id="review-submit-button"
+                type="submit"
+                disabled={reviewSubmitting}
+                className="mt-4 rounded-full bg-teal px-5 py-3 text-sm font-bold text-white hover:bg-ink disabled:opacity-60"
+              >
+                {reviewSubmitting ? "Posting..." : "Post review"}
+              </button>
+              {reviewError && (
+                <p
+                  id="review-form-error"
+                  role="alert"
+                  className="mt-4 rounded-xl border border-soft-edge bg-soft px-4 py-3 text-sm font-semibold text-danger"
+                >
+                  {reviewError}
+                </p>
+              )}
+            </form>
+          )}
+          {user && hasReviewed && (
+            <p id="review-already-posted" className="mt-6 text-sm font-semibold text-ink/70">
+              You&apos;ve reviewed this session.
+            </p>
+          )}
+          {detail.reviews.length === 0 ? (
+            <p id="review-empty" className="mt-6 text-sm text-ink/70">
+              No reviews yet.
+            </p>
+          ) : (
+            <ul id="workshop-detail-reviews-list" className="mt-6 space-y-3">
+              {detail.reviews.map((review) => (
+                <li
+                  key={review.id}
+                  id={`workshop-detail-review-${review.id}`}
+                  className="rounded-2xl border border-line bg-paper/70 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-semibold">{review.user_name}</p>
+                    <span
+                      id={`review-rating-badge-${review.id}`}
+                      className="rounded-full bg-sand px-3 py-1 text-xs font-bold text-ink"
+                    >
+                      {review.rating}/5
+                    </span>
+                  </div>
+                  {review.text && (
+                    <p className="mt-2 text-sm leading-6 text-ink/75">{review.text}</p>
+                  )}
+                  <p className="mt-2 text-xs text-ink/60">{formatDate(review.created_at)}</p>
                 </li>
               ))}
             </ul>
